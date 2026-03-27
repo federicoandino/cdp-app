@@ -1,0 +1,64 @@
+import { NextRequest, NextResponse } from "next/server";
+import db from "@/db";
+import { segments, customers } from "@/db/schema";
+import { eq, sql } from "drizzle-orm";
+import { evaluateSegmentCount } from "@/lib/segment-engine";
+import type { SegmentFilter } from "@/db/schema";
+import { RFM_SEGMENTS } from "@/lib/rfm";
+
+export async function GET() {
+  try {
+    const allSegments = db.select().from(segments).orderBy(segments.created_at).all();
+
+    // Get total customer count for percentage
+    const totalResult = db.select({ count: sql<number>`count(*)` }).from(customers).get();
+    const totalCustomers = totalResult?.count ?? 1;
+
+    const enriched = allSegments.map((seg) => ({
+      ...seg,
+      percentage: totalCustomers > 0 ? ((seg.customer_count ?? 0) / totalCustomers) * 100 : 0,
+    }));
+
+    return NextResponse.json({ data: enriched, total: totalCustomers });
+  } catch (error) {
+    console.error("GET /api/segments error:", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { name, description, filters } = body;
+
+    if (!name) {
+      return NextResponse.json({ error: "Name is required" }, { status: 400 });
+    }
+
+    const count = evaluateSegmentCount(filters ?? []);
+
+    const result = db
+      .insert(segments)
+      .values({
+        name,
+        description: description ?? null,
+        filters: filters ?? [],
+        customer_count: count,
+        is_rfm_auto: false,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .run();
+
+    const created = db
+      .select()
+      .from(segments)
+      .where(eq(segments.id, Number(result.lastInsertRowid)))
+      .get();
+
+    return NextResponse.json(created, { status: 201 });
+  } catch (error) {
+    console.error("POST /api/segments error:", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}

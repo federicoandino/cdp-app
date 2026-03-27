@@ -1,0 +1,110 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: #F8F9FB;
+    --foreground: #111827;
+    --card: #FFFFFF;
+    --border: #E5E7EB;
+    --primary: #6366F1;
+    --primary-foreground: #FFFFFF;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    color: #111827;
+    background: #F8F9FB;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #D1D5DB;
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #9CA3AF;
+  }
+}
+
+@layer components {
+  .page-header {
+    @apply flex items-center justify-between mb-6;
+  }
+  .page-title {
+    @apply text-2xl font-semibold text-gray-900;
+  }
+  .section-title {
+    @apply text-base font-semibold text-gray-900;
+  }
+
+  .kpi-card {
+    @apply bg-white rounded-xl shadow-card p-6 border border-gray-100;
+  }
+
+  .data-table {
+    @apply w-full text-sm;
+  }
+  .data-table thead tr {
+    @apply bg-gray-50 border-b border-gray-200;
+  }
+  .data-table thead th {
+    @apply px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide;
+  }
+  .data-table tbody tr {
+    @apply border-b border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer;
+  }
+  .data-table tbody td {
+    @apply px-4 py-3 text-gray-700;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700
+           text-white text-sm font-medium rounded-lg transition-colors shadow-sm;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center gap-2 px-4 py-2.5 bg-white hover:bg-gray-50
+           text-gray-700 text-sm font-medium rounded-lg border border-gray-200 transition-colors;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center gap-2 px-3 py-2 text-gray-600 hover:text-gray-900
+           hover:bg-gray-100 text-sm font-medium rounded-lg transition-colors;
+  }
+
+  .input-field {
+    @apply w-full px-3 py-2 text-sm text-gray-900 bg-white border border-gray-200
+           rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent
+           placeholder:text-gray-400 transition;
+  }
+
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .skeleton {
+    @apply animate-pulse bg-gray-200 rounded;
+  }
+
+  /* Shimmer effect */
+  .shimmer {
+    background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+  }
+}
