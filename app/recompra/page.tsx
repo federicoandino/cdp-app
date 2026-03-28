@@ -10,7 +10,6 @@ import {
   Tooltip,
   ReferenceLine,
   ResponsiveContainer,
-  TooltipProps,
 } from "recharts";
 import { Users, TrendingUp, Clock, Info } from "lucide-react";
 import { formatNumber } from "@/lib/utils";
@@ -34,7 +33,7 @@ interface RecompraData {
   median: number | null;
 }
 
-function CustomTooltip({ active, payload }: TooltipProps<number, string>) {
+function CustomTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: DataPoint }> }) {
   if (!active || !payload?.length) return null;
   const d = payload[0].payload as DataPoint;
   return (
