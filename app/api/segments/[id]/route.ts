@@ -13,7 +13,7 @@ export async function GET(
     const id = parseInt(params.id);
     if (isNaN(id)) return NextResponse.json({ error: "Invalid ID" }, { status: 400 });
 
-    const segment = db.select().from(segments).where(eq(segments.id, id)).get();
+    const segment = await db.select().from(segments).where(eq(segments.id, id)).get();
     if (!segment) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
     const { searchParams } = new URL(request.url);
@@ -22,13 +22,13 @@ export async function GET(
     const limit = parseInt(searchParams.get("limit") ?? "50");
 
     if (includeCustomers) {
-      const allIds = getSegmentCustomerIds(segment.filters ?? []);
+      const allIds = await getSegmentCustomerIds(segment.filters ?? []);
       const total = allIds.length;
       const slicedIds = allIds.slice((page - 1) * limit, page * limit);
 
       const customerRows =
         slicedIds.length > 0
-          ? db.select().from(customers).where(inArray(customers.id, slicedIds)).all()
+          ? await db.select().from(customers).where(inArray(customers.id, slicedIds)).all()
           : [];
 
       return NextResponse.json({
@@ -59,9 +59,9 @@ export async function PUT(
     const body = await request.json();
     const { name, description, filters } = body;
 
-    const count = evaluateSegmentCount(filters ?? []);
+    const count = await evaluateSegmentCount(filters ?? []);
 
-    db.update(segments)
+    await db.update(segments)
       .set({
         name,
         description,
@@ -72,7 +72,7 @@ export async function PUT(
       .where(eq(segments.id, id))
       .run();
 
-    const updated = db.select().from(segments).where(eq(segments.id, id)).get();
+    const updated = await db.select().from(segments).where(eq(segments.id, id)).get();
     return NextResponse.json(updated);
   } catch (error) {
     console.error("PUT /api/segments/[id] error:", error);
@@ -88,13 +88,13 @@ export async function DELETE(
     const id = parseInt(params.id);
     if (isNaN(id)) return NextResponse.json({ error: "Invalid ID" }, { status: 400 });
 
-    const segment = db.select().from(segments).where(eq(segments.id, id)).get();
+    const segment = await db.select().from(segments).where(eq(segments.id, id)).get();
     if (!segment) return NextResponse.json({ error: "Not found" }, { status: 404 });
     if (segment.is_rfm_auto) {
       return NextResponse.json({ error: "No se pueden eliminar segmentos RFM automáticos" }, { status: 400 });
     }
 
-    db.delete(segments).where(eq(segments.id, id)).run();
+    await db.delete(segments).where(eq(segments.id, id)).run();
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("DELETE /api/segments/[id] error:", error);

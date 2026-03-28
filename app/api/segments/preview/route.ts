@@ -7,7 +7,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const filters: SegmentFilter[] = body.filters ?? [];
-    const count = evaluateSegmentCount(filters);
+    const count = await evaluateSegmentCount(filters);
     return NextResponse.json({ count });
   } catch (error) {
     console.error("POST /api/segments/preview error:", error);

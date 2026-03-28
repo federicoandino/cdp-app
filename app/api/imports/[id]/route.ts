@@ -12,11 +12,12 @@ export async function GET(
     const id = parseInt(params.id);
     if (isNaN(id)) return NextResponse.json({ error: "Invalid ID" }, { status: 400 });
 
-    const imp = db.select().from(imports).where(eq(imports.id, id)).get();
+    const imp = await db.select().from(imports).where(eq(imports.id, id)).get();
     if (!imp) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
     return NextResponse.json(imp);
   } catch (error) {
+    console.error("GET /api/imports/[id] error:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

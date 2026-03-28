@@ -1,11 +1,11 @@
 /**
  * Customer deduplication and merge logic.
- * Runs inside a DB transaction during import.
+ * Runs during import.
  */
 
 import db from "@/db";
 import { customers } from "@/db/schema";
-import { eq, or } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import type { NewCustomer } from "@/db/schema";
 
 export type DeduplicationResult = {
@@ -22,16 +22,18 @@ export type IncomingCustomer = Partial<NewCustomer> & {
   phone?: string | null;
 };
 
+type Customer = typeof customers.$inferSelect;
+
 /**
  * Find an existing customer by priority:
  * 1. Email match
  * 2. External ID match
  * 3. Name + phone match
  */
-export function findExistingCustomer(incoming: IncomingCustomer) {
+export async function findExistingCustomer(incoming: IncomingCustomer): Promise<Customer | null> {
   // Priority 1: email
   if (incoming.email) {
-    const byEmail = db
+    const byEmail = await db
       .select()
       .from(customers)
       .where(eq(customers.email, incoming.email.toLowerCase()))
@@ -41,7 +43,7 @@ export function findExistingCustomer(incoming: IncomingCustomer) {
 
   // Priority 2: external_id
   if (incoming.external_id) {
-    const byExtId = db
+    const byExtId = await db
       .select()
       .from(customers)
       .where(eq(customers.external_id, incoming.external_id))
@@ -52,12 +54,12 @@ export function findExistingCustomer(incoming: IncomingCustomer) {
   // Priority 3: first_name + phone (fuzzy enough for MVP)
   if (incoming.first_name && incoming.phone) {
     const normalizedPhone = normalizePhone(incoming.phone);
-    const byNamePhone = db
+    const byName = await db
       .select()
       .from(customers)
       .where(eq(customers.first_name, incoming.first_name))
-      .all()
-      .find((c) => c.phone && normalizePhone(c.phone) === normalizedPhone);
+      .all();
+    const byNamePhone = byName.find((c) => c.phone && normalizePhone(c.phone) === normalizedPhone);
     if (byNamePhone) return byNamePhone;
   }
 
@@ -70,7 +72,7 @@ export function findExistingCustomer(incoming: IncomingCustomer) {
  * Existing non-null values are kept if incoming is null.
  */
 export function mergeCustomer(
-  existing: NonNullable<ReturnType<typeof findExistingCustomer>>,
+  existing: Customer,
   incoming: IncomingCustomer
 ): Partial<NewCustomer> {
   const merged: Partial<NewCustomer> = {};
@@ -98,12 +100,12 @@ export function mergeCustomer(
 /**
  * Upsert a customer: find existing → merge → update, or create new.
  */
-export function upsertCustomer(incoming: IncomingCustomer, sourceName: string): DeduplicationResult {
-  const existing = findExistingCustomer(incoming);
+export async function upsertCustomer(incoming: IncomingCustomer, sourceName: string): Promise<DeduplicationResult> {
+  const existing = await findExistingCustomer(incoming);
 
   if (existing) {
     const merged = mergeCustomer(existing, incoming);
-    db.update(customers)
+    await db.update(customers)
       .set({
         ...merged,
         updated_at: new Date().toISOString(),
@@ -122,7 +124,7 @@ export function upsertCustomer(incoming: IncomingCustomer, sourceName: string): 
     };
   }
 
-  const result = db
+  const result = await db
     .insert(customers)
     .values({
       email: incoming.email ?? undefined,

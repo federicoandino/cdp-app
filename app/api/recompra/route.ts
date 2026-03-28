@@ -5,7 +5,7 @@ import { sql } from "drizzle-orm";
 
 export async function GET() {
   try {
-    const rows = db.all(sql`
+    const rows = await db.all(sql`
       WITH ranked AS (
         SELECT
           customer_id,

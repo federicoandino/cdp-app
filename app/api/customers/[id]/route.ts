@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import db from "@/db";
 import { customers, orders, order_items, segments } from "@/db/schema";
-import { eq, desc, sql } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 
 export async function GET(
   _request: NextRequest,
@@ -14,7 +14,7 @@ export async function GET(
       return NextResponse.json({ error: "Invalid ID" }, { status: 400 });
     }
 
-    const customer = db
+    const customer = await db
       .select()
       .from(customers)
       .where(eq(customers.id, id))
@@ -25,7 +25,7 @@ export async function GET(
     }
 
     // Get all orders for this customer
-    const customerOrders = db
+    const customerOrders = await db
       .select()
       .from(orders)
       .where(eq(orders.customer_id, id))
@@ -35,7 +35,7 @@ export async function GET(
     // Get order items for each order
     const ordersWithItems = await Promise.all(
       customerOrders.map(async (order) => {
-        const items = db
+        const items = await db
           .select()
           .from(order_items)
           .where(eq(order_items.order_id, order.id))
@@ -45,7 +45,7 @@ export async function GET(
     );
 
     // Get segments this customer belongs to (RFM + custom)
-    const allSegments = db.select().from(segments).all();
+    const allSegments = await db.select().from(segments).all();
     const customerSegments = allSegments.filter((seg) => {
       if (seg.is_rfm_auto && customer.rfm_segment) {
         return seg.name === customer.rfm_segment;
@@ -91,9 +91,9 @@ export async function PUT(
     }
     updates.updated_at = new Date().toISOString();
 
-    db.update(customers).set(updates).where(eq(customers.id, id)).run();
+    await db.update(customers).set(updates).where(eq(customers.id, id)).run();
 
-    const updated = db.select().from(customers).where(eq(customers.id, id)).get();
+    const updated = await db.select().from(customers).where(eq(customers.id, id)).get();
     return NextResponse.json(updated);
   } catch (error) {
     console.error("PUT /api/customers/[id] error:", error);

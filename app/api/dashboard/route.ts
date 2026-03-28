@@ -2,25 +2,25 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import db from "@/db";
 import { customers, orders, imports } from "@/db/schema";
-import { sql, desc, gte } from "drizzle-orm";
+import { sql, desc } from "drizzle-orm";
 
 export async function GET() {
   try {
     // --- KPIs ---
-    const totalCustomersResult = db
+    const totalCustomersResult = await db
       .select({ count: sql<number>`count(*)` })
       .from(customers)
       .get();
     const totalCustomers = totalCustomersResult?.count ?? 0;
 
-    const customersWithPurchasesResult = db
+    const customersWithPurchasesResult = await db
       .select({ count: sql<number>`count(*)` })
       .from(customers)
       .where(sql`customers.total_orders > 0`)
       .get();
     const customersWithPurchases = customersWithPurchasesResult?.count ?? 0;
 
-    const revenueResult = db
+    const revenueResult = await db
       .select({
         totalRevenue: sql<number>`sum(customers.total_spent)`,
         avgTicket: sql<number>`avg(customers.average_ticket)`,
@@ -28,14 +28,14 @@ export async function GET() {
       .from(customers)
       .get();
 
-    const totalOrdersResult = db
+    const totalOrdersResult = await db
       .select({ count: sql<number>`count(*)` })
       .from(orders)
       .get();
     const totalOrders = totalOrdersResult?.count ?? 0;
 
     // --- Revenue by month (last 12 months) ---
-    const revenueByMonth = db
+    const revenueByMonth = await db
       .select({
         month: sql<string>`strftime('%Y-%m', order_date)`,
         revenue: sql<number>`sum(total)`,
@@ -48,7 +48,7 @@ export async function GET() {
       .all();
 
     // --- Customers by RFM segment ---
-    const rfmDistribution = db
+    const rfmDistribution = await db
       .select({
         segment: customers.rfm_segment,
         count: sql<number>`count(*)`,
@@ -59,7 +59,7 @@ export async function GET() {
       .all();
 
     // --- Channel distribution ---
-    const channelDistribution = db
+    const channelDistribution = await db
       .select({
         channel: orders.channel,
         count: sql<number>`count(*)`,
@@ -71,7 +71,7 @@ export async function GET() {
       .all();
 
     // --- Top 10 customers by total spent ---
-    const topCustomers = db
+    const topCustomers = await db
       .select()
       .from(customers)
       .where(sql`customers.total_spent > 0`)
@@ -80,7 +80,7 @@ export async function GET() {
       .all();
 
     // --- Last 5 imports ---
-    const recentImports = db
+    const recentImports = await db
       .select()
       .from(imports)
       .orderBy(desc(imports.created_at))
@@ -88,7 +88,7 @@ export async function GET() {
       .all();
 
     // --- Customer growth by month ---
-    const customerGrowth = db
+    const customerGrowth = await db
       .select({
         month: sql<string>`strftime('%Y-%m', created_at)`,
         count: sql<number>`count(*)`,

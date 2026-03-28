@@ -19,7 +19,7 @@ function loadConfig(): SegmentThreshold[] {
 export async function POST() {
   try {
     // Get all customers with purchase data
-    const allCustomers = db
+    const allCustomers = await db
       .select({
         id: customers.id,
         last_purchase_date: customers.last_purchase_date,
@@ -37,29 +37,27 @@ export async function POST() {
     const config = loadConfig();
     const scored = calculateRFM(allCustomers, config);
 
-    // Update customers in a transaction
-    db.transaction(() => {
-      for (const score of scored) {
-        db.update(customers)
-          .set({
-            rfm_recency_score: score.rfm_recency_score,
-            rfm_frequency_score: score.rfm_frequency_score,
-            rfm_monetary_score: score.rfm_monetary_score,
-            rfm_total_score: score.rfm_total_score,
-            rfm_segment: score.rfm_segment,
-            updated_at: new Date().toISOString(),
-          })
-          .where(eq(customers.id, score.id))
-          .run();
-      }
-    });
+    // Update customers
+    for (const score of scored) {
+      await db.update(customers)
+        .set({
+          rfm_recency_score: score.rfm_recency_score,
+          rfm_frequency_score: score.rfm_frequency_score,
+          rfm_monetary_score: score.rfm_monetary_score,
+          rfm_total_score: score.rfm_total_score,
+          rfm_segment: score.rfm_segment,
+          updated_at: new Date().toISOString(),
+        })
+        .where(eq(customers.id, score.id))
+        .run();
+    }
 
     // Update/create RFM auto segments
     for (const segmentName of RFM_SEGMENTS) {
       if (segmentName === "Sin Clasificar") continue;
 
       // Count customers in this segment
-      const countResult = db
+      const countResult = await db
         .select({ count: sql<number>`count(*)` })
         .from(customers)
         .where(eq(customers.rfm_segment, segmentName))
@@ -67,14 +65,14 @@ export async function POST() {
       const count = countResult?.count ?? 0;
 
       // Check if segment exists
-      const existing = db
+      const existing = await db
         .select()
         .from(segments)
         .where(eq(segments.name, segmentName))
         .get();
 
       if (existing) {
-        db.update(segments)
+        await db.update(segments)
           .set({
             customer_count: count,
             updated_at: new Date().toISOString(),
@@ -82,7 +80,7 @@ export async function POST() {
           .where(eq(segments.id, existing.id))
           .run();
       } else {
-        db.insert(segments)
+        await db.insert(segments)
           .values({
             name: segmentName,
             description: `Segmento RFM automático: ${segmentName}`,
@@ -110,7 +108,7 @@ export async function POST() {
 export async function GET() {
   try {
     // Get RFM summary stats
-    const rfmSegments = db
+    const rfmSegments = await db
       .select({
         segment: customers.rfm_segment,
         count: sql<number>`count(*)`,
@@ -122,7 +120,7 @@ export async function GET() {
       .all();
 
     // Get RFM matrix data (recency vs frequency)
-    const matrixData = db
+    const matrixData = await db
       .select({
         recency: customers.rfm_recency_score,
         frequency: customers.rfm_frequency_score,

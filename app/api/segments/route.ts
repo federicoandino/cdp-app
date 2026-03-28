@@ -5,14 +5,13 @@ import { segments, customers } from "@/db/schema";
 import { eq, sql } from "drizzle-orm";
 import { evaluateSegmentCount } from "@/lib/segment-engine";
 import type { SegmentFilter } from "@/db/schema";
-import { RFM_SEGMENTS } from "@/lib/rfm";
 
 export async function GET() {
   try {
-    const allSegments = db.select().from(segments).orderBy(segments.created_at).all();
+    const allSegments = await db.select().from(segments).orderBy(segments.created_at).all();
 
     // Get total customer count for percentage
-    const totalResult = db.select({ count: sql<number>`count(*)` }).from(customers).get();
+    const totalResult = await db.select({ count: sql<number>`count(*)` }).from(customers).get();
     const totalCustomers = totalResult?.count ?? 1;
 
     const enriched = allSegments.map((seg) => ({
@@ -36,9 +35,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Name is required" }, { status: 400 });
     }
 
-    const count = evaluateSegmentCount(filters ?? []);
+    const count = await evaluateSegmentCount(filters ?? []);
 
-    const result = db
+    const result = await db
       .insert(segments)
       .values({
         name,
@@ -51,7 +50,7 @@ export async function POST(request: NextRequest) {
       })
       .run();
 
-    const created = db
+    const created = await db
       .select()
       .from(segments)
       .where(eq(segments.id, Number(result.lastInsertRowid)))

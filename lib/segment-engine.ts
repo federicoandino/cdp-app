@@ -8,20 +8,20 @@ import { customers, orders, order_items } from "@/db/schema";
 import type { SegmentFilter } from "@/db/schema";
 import { sql } from "drizzle-orm";
 
-export function evaluateSegmentCount(filters: SegmentFilter[]): number {
+export async function evaluateSegmentCount(filters: SegmentFilter[]): Promise<number> {
   if (!filters || filters.length === 0) {
-    const result = db.select({ count: sql<number>`count(*)` }).from(customers).get();
+    const result = await db.select({ count: sql<number>`count(*)` }).from(customers).get();
     return result?.count ?? 0;
   }
 
   const whereClause = buildWhereClause(filters);
   if (!whereClause) {
-    const result = db.select({ count: sql<number>`count(*)` }).from(customers).get();
+    const result = await db.select({ count: sql<number>`count(*)` }).from(customers).get();
     return result?.count ?? 0;
   }
 
   try {
-    const result = db
+    const result = await db
       .select({ count: sql<number>`count(*)` })
       .from(customers)
       .where(sql.raw(whereClause))
@@ -32,23 +32,25 @@ export function evaluateSegmentCount(filters: SegmentFilter[]): number {
   }
 }
 
-export function getSegmentCustomerIds(filters: SegmentFilter[]): number[] {
+export async function getSegmentCustomerIds(filters: SegmentFilter[]): Promise<number[]> {
   if (!filters || filters.length === 0) {
-    return db.select({ id: customers.id }).from(customers).all().map((c) => c.id);
+    const rows = await db.select({ id: customers.id }).from(customers).all();
+    return rows.map((c) => c.id);
   }
 
   const whereClause = buildWhereClause(filters);
   if (!whereClause) {
-    return db.select({ id: customers.id }).from(customers).all().map((c) => c.id);
+    const rows = await db.select({ id: customers.id }).from(customers).all();
+    return rows.map((c) => c.id);
   }
 
   try {
-    return db
+    const rows = await db
       .select({ id: customers.id })
       .from(customers)
       .where(sql.raw(whereClause))
-      .all()
-      .map((c) => c.id);
+      .all();
+    return rows.map((c) => c.id);
   } catch {
     return [];
   }

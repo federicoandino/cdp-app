@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
     // Get total count
-    const countResult = db
+    const countResult = await db
       .select({ count: sql<number>`count(*)` })
       .from(customers)
       .where(whereClause)
@@ -65,7 +65,7 @@ export async function GET(request: NextRequest) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sortCol = (customers as any)[colKey];
 
-    const rows = db
+    const rows = await db
       .select()
       .from(customers)
       .where(whereClause)
