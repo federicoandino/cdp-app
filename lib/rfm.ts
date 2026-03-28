@@ -1,93 +1,121 @@
 /**
- * RFM segmentation engine — parameter-based.
- * R = days since last purchase, F = purchases per year, M = monetary tier (LOW/MEDIUM/HIGH).
- * M tiers are computed dynamically from the actual customer base (33rd / 67th percentile).
+ * RFM (Recency, Frequency, Monetary) scoring engine.
+ * Pure functions — no DB access here.
  */
 
-import { DEFAULT_SEGMENT_RULES, type SegmentRule, type MTier } from "./rfm-config";
+export type RFMScores = {
+  recency: number;
+  frequency: number;
+  monetary: number;
+  total: number;
+  segment: string;
+};
+
+/**
+ * Assign quintile scores (1–5) based on a sorted array of values.
+ * For recency: lower days = better = higher score (inverse).
+ * For F and M: higher value = better = higher score.
+ */
+export function assignQuintiles(values: number[], inverse = false): Map<number, number> {
+  const sorted = [...values].sort((a, b) => a - b);
+  const n = sorted.length;
+  const scoreMap = new Map<number, number>();
+
+  for (let i = 0; i < sorted.length; i++) {
+    const percentile = i / n;
+    let score: number;
+    if (percentile < 0.2) score = 1;
+    else if (percentile < 0.4) score = 2;
+    else if (percentile < 0.6) score = 3;
+    else if (percentile < 0.8) score = 4;
+    else score = 5;
+
+    if (inverse) score = 6 - score;
+    scoreMap.set(sorted[i], score);
+  }
+
+  return scoreMap;
+}
 
 export type CustomerRFMInput = {
   id: number;
   last_purchase_date: string | null;
-  first_purchase_date: string | null;
   total_orders: number | null;
   total_spent: number | null;
 };
 
 export type CustomerRFMOutput = {
   id: number;
+  rfm_recency_score: number;
+  rfm_frequency_score: number;
+  rfm_monetary_score: number;
+  rfm_total_score: number;
   rfm_segment: string;
 };
 
 /**
- * Classify all customers into segments using business parameters.
- * - R: days since last purchase
- * - F: purchases per year (annualised from first purchase date)
- * - M: monetary tier computed from 33rd / 67th percentile of total_spent in the base
+ * Calculate RFM scores for all customers.
+ * Takes an array of customers with purchase data, returns scored array.
  */
-export function classifyCustomers(
-  customers: CustomerRFMInput[],
-  rules?: SegmentRule[]
-): CustomerRFMOutput[] {
-  const activeRules = rules ?? DEFAULT_SEGMENT_RULES;
+export function calculateRFM(customers: CustomerRFMInput[], config?: SegmentThreshold[]): CustomerRFMOutput[] {
   const now = new Date();
 
+  // Filter customers who have made at least one purchase
   const withPurchases = customers.filter(
     (c) => c.last_purchase_date && (c.total_orders ?? 0) > 0
   );
 
   if (withPurchases.length === 0) return [];
 
-  // Compute M tier thresholds from actual distribution
-  const spentSorted = [...withPurchases]
-    .map((c) => c.total_spent ?? 0)
-    .sort((a, b) => a - b);
-  const n = spentSorted.length;
-  const p33 = spentSorted[Math.floor(n * 0.33)] ?? 0;
-  const p67 = spentSorted[Math.floor(n * 0.67)] ?? 0;
-
-  const getMTier = (spent: number): MTier => {
-    if (spent <= p33) return "LOW";
-    if (spent <= p67) return "MEDIUM";
-    return "HIGH";
-  };
-
-  return withPurchases.map((c) => {
-    // R: days since last purchase
+  // Calculate recency in days
+  const recencyValues = withPurchases.map((c) => {
     const lastDate = new Date(c.last_purchase_date!);
-    const daysSince = Math.max(
-      0,
-      Math.floor((now.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24))
-    );
-
-    // F: annualised purchase frequency
-    const firstDate = c.first_purchase_date
-      ? new Date(c.first_purchase_date)
-      : lastDate;
-    const daysActive = Math.max(
-      1,
-      (now.getTime() - firstDate.getTime()) / (1000 * 60 * 60 * 24)
-    );
-    const yearsActive = Math.max(1, daysActive / 365);
-    const freqPerYear = (c.total_orders ?? 0) / yearsActive;
-
-    // M tier
-    const mTier = getMTier(c.total_spent ?? 0);
-
-    // First matching rule wins
-    let rfm_segment = "Sin Clasificar";
-    for (const rule of activeRules) {
-      const rMatch = daysSince >= rule.rFrom && daysSince <= rule.rTo;
-      const fMatch = freqPerYear >= rule.fFrom && freqPerYear <= rule.fTo;
-      const mMatch = rule.m === "ANY" || mTier === rule.m;
-      if (rMatch && fMatch && mMatch) {
-        rfm_segment = rule.name;
-        break;
-      }
-    }
-
-    return { id: c.id, rfm_segment };
+    const diffMs = now.getTime() - lastDate.getTime();
+    return Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
   });
+
+  const frequencyValues = withPurchases.map((c) => c.total_orders ?? 0);
+  const monetaryValues = withPurchases.map((c) => c.total_spent ?? 0);
+
+  // Build unique value → score maps
+  const recencyMap = assignQuintiles(recencyValues, true); // inverse: fewer days = higher score
+  const frequencyMap = assignQuintiles(frequencyValues, false);
+  const monetaryMap = assignQuintiles(monetaryValues, false);
+
+  return withPurchases.map((c, i) => {
+    const r = recencyMap.get(recencyValues[i]) ?? 1;
+    const f = frequencyMap.get(frequencyValues[i]) ?? 1;
+    const m = monetaryMap.get(monetaryValues[i]) ?? 1;
+    const total = r * 100 + f * 10 + m;
+    const segment = classifyRFMSegment(r, f, m, config);
+
+    return {
+      id: c.id,
+      rfm_recency_score: r,
+      rfm_frequency_score: f,
+      rfm_monetary_score: m,
+      rfm_total_score: total,
+      rfm_segment: segment,
+    };
+  });
+}
+
+import { DEFAULT_THRESHOLDS, type SegmentThreshold } from "./rfm-config";
+
+/**
+ * Classify customer into an RFM segment based on R, F, M scores.
+ * Uses priority-ordered thresholds — first match wins.
+ */
+export function classifyRFMSegment(r: number, f: number, m: number, config?: SegmentThreshold[]): string {
+  const rules = config ?? DEFAULT_THRESHOLDS;
+  for (const rule of rules) {
+    if (r >= rule.rMin && r <= rule.rMax &&
+        f >= rule.fMin && f <= rule.fMax &&
+        m >= rule.mMin && m <= rule.mMax) {
+      return rule.name;
+    }
+  }
+  return "Sin Clasificar";
 }
 
 export const RFM_SEGMENTS = [
@@ -108,16 +136,16 @@ export const RFM_SEGMENTS = [
 export type RFMSegment = (typeof RFM_SEGMENTS)[number];
 
 export const RFM_SEGMENT_COLORS: Record<string, { bg: string; text: string; badge: string }> = {
-  "Campeones":            { bg: "bg-green-100",  text: "text-green-800",  badge: "bg-green-100 text-green-800"   },
-  "Clientes Leales":      { bg: "bg-blue-100",   text: "text-blue-800",   badge: "bg-blue-100 text-blue-800"    },
+  "Campeones": { bg: "bg-green-100", text: "text-green-800", badge: "bg-green-100 text-green-800" },
+  "Clientes Leales": { bg: "bg-blue-100", text: "text-blue-800", badge: "bg-blue-100 text-blue-800" },
   "Potencial de Lealtad": { bg: "bg-indigo-100", text: "text-indigo-800", badge: "bg-indigo-100 text-indigo-800" },
-  "Clientes Nuevos":      { bg: "bg-cyan-100",   text: "text-cyan-800",   badge: "bg-cyan-100 text-cyan-800"    },
-  "Prometedores":         { bg: "bg-teal-100",   text: "text-teal-800",   badge: "bg-teal-100 text-teal-800"    },
-  "Necesitan Atención":   { bg: "bg-yellow-100", text: "text-yellow-800", badge: "bg-yellow-100 text-yellow-800" },
-  "A Punto de Dormir":    { bg: "bg-orange-100", text: "text-orange-800", badge: "bg-orange-100 text-orange-800" },
-  "En Riesgo":            { bg: "bg-red-100",    text: "text-red-800",    badge: "bg-red-100 text-red-800"      },
-  "No Puedo Perderlos":   { bg: "bg-rose-100",   text: "text-rose-800",   badge: "bg-rose-100 text-rose-800"    },
-  "Hibernando":           { bg: "bg-gray-100",   text: "text-gray-600",   badge: "bg-gray-100 text-gray-600"    },
-  "Perdidos":             { bg: "bg-zinc-100",   text: "text-zinc-500",   badge: "bg-zinc-100 text-zinc-500"    },
-  "Sin Clasificar":       { bg: "bg-slate-100",  text: "text-slate-500",  badge: "bg-slate-100 text-slate-500"  },
+  "Clientes Nuevos": { bg: "bg-cyan-100", text: "text-cyan-800", badge: "bg-cyan-100 text-cyan-800" },
+  "Prometedores": { bg: "bg-teal-100", text: "text-teal-800", badge: "bg-teal-100 text-teal-800" },
+  "Necesitan Atención": { bg: "bg-yellow-100", text: "text-yellow-800", badge: "bg-yellow-100 text-yellow-800" },
+  "A Punto de Dormir": { bg: "bg-orange-100", text: "text-orange-800", badge: "bg-orange-100 text-orange-800" },
+  "En Riesgo": { bg: "bg-red-100", text: "text-red-800", badge: "bg-red-100 text-red-800" },
+  "No Puedo Perderlos": { bg: "bg-rose-100", text: "text-rose-800", badge: "bg-rose-100 text-rose-800" },
+  "Hibernando": { bg: "bg-gray-100", text: "text-gray-600", badge: "bg-gray-100 text-gray-600" },
+  "Perdidos": { bg: "bg-zinc-100", text: "text-zinc-500", badge: "bg-zinc-100 text-zinc-500" },
+  "Sin Clasificar": { bg: "bg-slate-100", text: "text-slate-500", badge: "bg-slate-100 text-slate-500" },
 };

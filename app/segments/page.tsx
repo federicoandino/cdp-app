@@ -76,7 +76,7 @@ export default function SegmentsPage() {
         </div>
         <div className="flex items-center gap-2">
           <Link href="/segments/config" className="btn-secondary flex items-center gap-1.5">
-            <Settings2 className="w-4 h-4" /> Configurar segmentos
+            <Settings2 className="w-4 h-4" /> Configurar RFM
           </Link>
           <Link href="/segments/create" className="btn-primary">
             <Plus className="w-4 h-4" /> Crear segmento

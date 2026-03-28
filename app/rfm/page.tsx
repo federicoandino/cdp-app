@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { RefreshCw, Users, TrendingUp, ChevronRight, Loader2 } from "lucide-react";
+import { RefreshCw, Users, TrendingUp, DollarSign, ChevronRight, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { RFMBadge } from "@/components/ui/rfm-badge";
-import { formatCurrency, formatNumber } from "@/lib/utils";
+import { formatCurrency, formatNumber, cn } from "@/lib/utils";
 import { RFM_SEGMENT_COLORS, RFM_SEGMENTS } from "@/lib/rfm";
 import type { Segment } from "@/db/schema";
 
@@ -15,9 +15,16 @@ interface RFMStats {
   total_revenue: number;
 }
 
+interface MatrixCell {
+  recency: number | null;
+  frequency: number | null;
+  count: number;
+}
+
 export default function RFMPage() {
   const [segments, setSegments] = useState<(Segment & { percentage: number })[]>([]);
   const [rfmStats, setRFMStats] = useState<RFMStats[]>([]);
+  const [matrix, setMatrix] = useState<MatrixCell[]>([]);
   const [totalCustomers, setTotalCustomers] = useState(0);
   const [loading, setLoading] = useState(true);
   const [recalcLoading, setRecalcLoading] = useState(false);
@@ -37,6 +44,7 @@ export default function RFMPage() {
       setSegments(rfmSegs);
       setTotalCustomers(segData.total ?? 0);
       setRFMStats(rfmData.segments ?? []);
+      setMatrix(rfmData.matrix ?? []);
     } finally {
       setLoading(false);
     }
@@ -51,12 +59,30 @@ export default function RFMPage() {
       const data = await res.json();
       setLastRecalc(new Date().toLocaleTimeString("es-AR"));
       await fetchData();
-      alert(`✓ Segmentos recalculados: ${data.updated} clientes actualizados`);
-    } catch {
-      alert("Error al recalcular segmentos");
+      alert(`✓ RFM recalculado: ${data.updated} clientes actualizados`);
+    } catch (err) {
+      alert("Error al recalcular RFM");
     } finally {
       setRecalcLoading(false);
     }
+  };
+
+  // Build matrix grid (5x5: Recency 1-5 vs Frequency 1-5)
+  const getMatrixCount = (r: number, f: number) => {
+    const cell = matrix.find((c) => c.recency === r && c.frequency === f);
+    return cell?.count ?? 0;
+  };
+
+  const maxCount = Math.max(...matrix.map((c) => c.count), 1);
+
+  const matrixColors = (count: number) => {
+    const pct = count / maxCount;
+    if (pct === 0) return "bg-gray-50 text-gray-300";
+    if (pct < 0.2) return "bg-indigo-50 text-indigo-400";
+    if (pct < 0.4) return "bg-indigo-100 text-indigo-600";
+    if (pct < 0.6) return "bg-indigo-200 text-indigo-700";
+    if (pct < 0.8) return "bg-indigo-300 text-indigo-800";
+    return "bg-indigo-500 text-white";
   };
 
   return (
@@ -81,9 +107,72 @@ export default function RFMPage() {
             {recalcLoading ? (
               <><Loader2 className="w-4 h-4 animate-spin" /> Calculando...</>
             ) : (
-              <><RefreshCw className="w-4 h-4" /> Recalcular</>
+              <><RefreshCw className="w-4 h-4" /> Recalcular RFM</>
             )}
           </button>
+        </div>
+      </div>
+
+      {/* RFM Matrix */}
+      <div className="bg-white rounded-xl border border-gray-100 shadow-card p-6 mb-6">
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="section-title">Mapa de Calor RFM</h2>
+          <div className="flex items-center gap-4 text-xs text-gray-400">
+            <div className="flex items-center gap-1.5">
+              <div className="w-3 h-3 rounded bg-indigo-50 border border-gray-200" /> Pocos
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div className="w-3 h-3 rounded bg-indigo-200" /> Medio
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div className="w-3 h-3 rounded bg-indigo-500" /> Muchos
+            </div>
+          </div>
+        </div>
+
+        <div className="flex gap-4">
+          {/* Y axis label */}
+          <div className="flex items-center">
+            <div className="text-xs text-gray-400 -rotate-90 whitespace-nowrap w-4" style={{ writingMode: "vertical-rl", textOrientation: "mixed", transform: "rotate(180deg)" }}>
+              Recencia →
+            </div>
+          </div>
+
+          <div className="flex-1">
+            {/* Column headers (Frequency) */}
+            <div className="grid grid-cols-5 gap-1.5 mb-1.5 ml-12">
+              {[1, 2, 3, 4, 5].map((f) => (
+                <div key={f} className="text-center text-xs text-gray-400 font-medium">F{f}</div>
+              ))}
+            </div>
+
+            {/* Matrix rows */}
+            {[5, 4, 3, 2, 1].map((r) => (
+              <div key={r} className="grid grid-cols-5 gap-1.5 mb-1.5 items-center">
+                <div className="text-xs text-gray-400 font-medium text-right pr-2 col-span-0 w-10 shrink-0 -ml-10 inline-block">
+                  R{r}
+                </div>
+                {[1, 2, 3, 4, 5].map((f) => {
+                  const count = getMatrixCount(r, f);
+                  return (
+                    <div
+                      key={f}
+                      className={cn(
+                        "h-14 rounded-lg flex items-center justify-center font-semibold text-sm transition-all hover:scale-105 cursor-default",
+                        matrixColors(count)
+                      )}
+                      title={`R${r}/F${f}: ${count} clientes`}
+                    >
+                      {count > 0 ? formatNumber(count) : "—"}
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+
+            {/* X axis label */}
+            <p className="text-xs text-gray-400 text-center mt-2">Frecuencia →</p>
+          </div>
         </div>
       </div>
 
@@ -101,14 +190,10 @@ export default function RFMPage() {
         </div>
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-          {(segments.length > 0
-            ? segments
-            : RFM_SEGMENTS.filter((s) => s !== "Sin Clasificar").map((name) => ({
-                id: 0, name, customer_count: 0, percentage: 0, is_rfm_auto: true,
-                description: null, filters: [], created_at: null, updated_at: null,
-                account_id: null,
-              }))
-          ).map((seg) => {
+          {(segments.length > 0 ? segments : RFM_SEGMENTS.filter(s => s !== "Sin Clasificar").map(name => ({
+            id: 0, name, customer_count: 0, percentage: 0, is_rfm_auto: true,
+            description: null, filters: [], created_at: null, updated_at: null
+          }))).map((seg) => {
             const colors = RFM_SEGMENT_COLORS[seg.name] ?? { badge: "bg-gray-100 text-gray-600" };
             const stats = rfmStats.find((s) => s.segment === seg.name);
 
@@ -148,9 +233,9 @@ export default function RFMPage() {
         </div>
       )}
 
-      {/* Explanation */}
+      {/* RFM Explanation */}
       <div className="mt-6 bg-white rounded-xl border border-gray-100 shadow-card p-6">
-        <h3 className="section-title mb-3">¿Cómo se calculan los segmentos?</h3>
+        <h3 className="section-title mb-3">¿Cómo se calcula el RFM?</h3>
         <div className="grid grid-cols-3 gap-6 text-sm">
           <div>
             <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center mb-2">
@@ -158,7 +243,7 @@ export default function RFMPage() {
             </div>
             <p className="font-semibold text-gray-800 mb-1">Recencia</p>
             <p className="text-gray-500 text-xs">
-              Días desde la última compra. Cada segmento define un rango mínimo y máximo de días.
+              Días desde la última compra. Score 5 = compró muy recientemente. Score 1 = lleva mucho tiempo sin comprar.
             </p>
           </div>
           <div>
@@ -167,25 +252,19 @@ export default function RFMPage() {
             </div>
             <p className="font-semibold text-gray-800 mb-1">Frecuencia</p>
             <p className="text-gray-500 text-xs">
-              Compras por año (anualizado desde la primera compra). Define qué tan seguido compra el cliente.
+              Cantidad total de compras realizadas. Score 5 = cliente muy frecuente. Score 1 = solo compró una vez.
             </p>
           </div>
           <div>
             <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center mb-2">
               <span className="text-indigo-700 font-bold text-sm">M</span>
             </div>
-            <p className="font-semibold text-gray-800 mb-1">Monto</p>
+            <p className="font-semibold text-gray-800 mb-1">Monetario</p>
             <p className="text-gray-500 text-xs">
-              Nivel de gasto relativo a la base: BAJO (33% inferior), MEDIO y ALTO (33% superior). Se calcula dinámicamente.
+              Total gastado históricamente. Score 5 = cliente de alto valor económico. Score 1 = bajo gasto acumulado.
             </p>
           </div>
         </div>
-        <p className="text-xs text-gray-400 mt-4">
-          Los rangos de cada segmento se pueden configurar en{" "}
-          <Link href="/segments/config" className="text-indigo-500 hover:underline">
-            Configurar Segmentos →
-          </Link>
-        </p>
       </div>
     </div>
   );

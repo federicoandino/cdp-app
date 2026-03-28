@@ -5,16 +5,16 @@ import path from "path";
 import db from "@/db";
 import { customers, segments } from "@/db/schema";
 import { eq, sql, and } from "drizzle-orm";
-import { classifyCustomers, RFM_SEGMENTS } from "@/lib/rfm";
-import { DEFAULT_SEGMENT_RULES, type SegmentRule } from "@/lib/rfm-config";
+import { calculateRFM, RFM_SEGMENTS } from "@/lib/rfm";
+import { DEFAULT_THRESHOLDS, type SegmentThreshold } from "@/lib/rfm-config";
 import { getAccountId } from "@/lib/get-account-id";
 
-function loadConfig(): SegmentRule[] {
+function loadConfig(): SegmentThreshold[] {
   try {
     const p = path.join(process.cwd(), "rfm-config.json");
     if (fs.existsSync(p)) return JSON.parse(fs.readFileSync(p, "utf-8"));
   } catch {}
-  return DEFAULT_SEGMENT_RULES;
+  return DEFAULT_THRESHOLDS;
 }
 
 export async function POST() {
@@ -24,7 +24,6 @@ export async function POST() {
     const allCustomers = await db.select({
       id: customers.id,
       last_purchase_date: customers.last_purchase_date,
-      first_purchase_date: customers.first_purchase_date,
       total_orders: customers.total_orders,
       total_spent: customers.total_spent,
     }).from(customers).where(eq(customers.account_id, accountId)).all();
@@ -34,17 +33,17 @@ export async function POST() {
     }
 
     const config = loadConfig();
-    const classified = classifyCustomers(allCustomers, config);
+    const scored = calculateRFM(allCustomers, config);
 
-    for (const result of classified) {
+    for (const score of scored) {
       await db.update(customers).set({
-        rfm_segment: result.rfm_segment,
-        rfm_recency_score: null,
-        rfm_frequency_score: null,
-        rfm_monetary_score: null,
-        rfm_total_score: null,
+        rfm_recency_score: score.rfm_recency_score,
+        rfm_frequency_score: score.rfm_frequency_score,
+        rfm_monetary_score: score.rfm_monetary_score,
+        rfm_total_score: score.rfm_total_score,
+        rfm_segment: score.rfm_segment,
         updated_at: new Date().toISOString(),
-      }).where(and(eq(customers.id, result.id), eq(customers.account_id, accountId))).run();
+      }).where(and(eq(customers.id, score.id), eq(customers.account_id, accountId))).run();
     }
 
     for (const segmentName of RFM_SEGMENTS) {
@@ -77,11 +76,7 @@ export async function POST() {
       }
     }
 
-    return NextResponse.json({
-      message: "RFM recalculado exitosamente",
-      updated: classified.length,
-      total: allCustomers.length,
-    });
+    return NextResponse.json({ message: "RFM recalculado exitosamente", updated: scored.length, total: allCustomers.length });
   } catch (error) {
     console.error("POST /api/segments/rfm error:", error);
     return NextResponse.json({ error: "Error al calcular RFM" }, { status: 500 });
@@ -99,7 +94,15 @@ export async function GET() {
       total_revenue: sql<number>`sum(customers.total_spent)`,
     }).from(customers).where(eq(customers.account_id, accountId)).groupBy(customers.rfm_segment).all();
 
-    return NextResponse.json({ segments: rfmSegments, matrix: [] });
+    const matrixData = await db.select({
+      recency: customers.rfm_recency_score,
+      frequency: customers.rfm_frequency_score,
+      count: sql<number>`count(*)`,
+    }).from(customers)
+      .where(sql`customers.account_id = ${accountId} AND customers.rfm_recency_score IS NOT NULL`)
+      .groupBy(customers.rfm_recency_score, customers.rfm_frequency_score).all();
+
+    return NextResponse.json({ segments: rfmSegments, matrix: matrixData });
   } catch (error) {
     console.error("GET /api/segments/rfm error:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
