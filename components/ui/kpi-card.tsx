@@ -36,18 +36,20 @@ export function KPICard({
 
   return (
     <div className={cn("kpi-card", className)}>
-      <div className="flex items-start justify-between mb-4">
+      <div className="flex items-start justify-between">
         <p className="text-sm text-gray-500 font-medium">{title}</p>
         {Icon && (
-          <div className={cn("w-9 h-9 rounded-lg flex items-center justify-center", iconColor)}>
+          <div className={cn("w-9 h-9 rounded-lg flex items-center justify-center shrink-0", iconColor)}>
             <Icon className="w-4 h-4" />
           </div>
         )}
       </div>
-      <p className="text-3xl font-bold text-gray-900 tracking-tight">{value}</p>
-      {subtitle && (
-        <p className="text-xs text-gray-400 mt-1">{subtitle}</p>
-      )}
+      <div>
+        <p className="text-3xl font-bold text-gray-900 tracking-tight">{value}</p>
+        {subtitle && (
+          <p className="text-xs text-gray-400 mt-1">{subtitle}</p>
+        )}
+      </div>
       {trend !== undefined && (
         <div className="flex items-center gap-1 mt-2">
           <span
