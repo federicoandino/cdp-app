@@ -2,17 +2,17 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
-import { DEFAULT_THRESHOLDS, type SegmentThreshold } from "@/lib/rfm-config";
+import { DEFAULT_SEGMENT_RULES, type SegmentRule } from "@/lib/rfm-config";
 
 const CONFIG_PATH = path.join(process.cwd(), "rfm-config.json");
 
-function loadConfig(): SegmentThreshold[] {
+function loadConfig(): SegmentRule[] {
   try {
     if (fs.existsSync(CONFIG_PATH)) {
       return JSON.parse(fs.readFileSync(CONFIG_PATH, "utf-8"));
     }
   } catch {}
-  return DEFAULT_THRESHOLDS;
+  return DEFAULT_SEGMENT_RULES;
 }
 
 export async function GET() {

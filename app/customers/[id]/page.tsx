@@ -6,7 +6,7 @@ import {
   ArrowLeft, Mail, Phone, MapPin, Tag, ShoppingBag, Calendar, TrendingUp,
   ChevronDown, ChevronUp, Package, CreditCard, Store, Globe, Edit
 } from "lucide-react";
-import { RFMBadge, RFMScoreDisplay } from "@/components/ui/rfm-badge";
+import { RFMBadge } from "@/components/ui/rfm-badge";
 import { KPICard } from "@/components/ui/kpi-card";
 import { formatCurrency, formatDate, formatRelativeDate, daysSince, getInitials, cn } from "@/lib/utils";
 import type { Customer, Order, OrderItem, Segment } from "@/db/schema";
@@ -169,12 +169,8 @@ export default function CustomerProfilePage() {
           </p>
         </div>
         <div className="kpi-card lg:col-span-1">
-          <p className="text-xs text-gray-500 mb-2">Scores RFM</p>
-          <RFMScoreDisplay
-            r={customer.rfm_recency_score}
-            f={customer.rfm_frequency_score}
-            m={customer.rfm_monetary_score}
-          />
+          <p className="text-xs text-gray-500 mb-2">Segmento</p>
+          <RFMBadge segment={customer.rfm_segment} />
         </div>
       </div>
 

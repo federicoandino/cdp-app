@@ -229,18 +229,24 @@ function mapRow(row: Record<string, unknown>, mapping: Record<string, string>): 
 }
 
 async function triggerRFMRecalculation(accountId: number) {
-  const { calculateRFM } = await import("@/lib/rfm");
+  const { classifyCustomers } = await import("@/lib/rfm");
   const allCustomers = await db.select({
-    id: customers.id, last_purchase_date: customers.last_purchase_date,
-    total_orders: customers.total_orders, total_spent: customers.total_spent,
+    id: customers.id,
+    last_purchase_date: customers.last_purchase_date,
+    first_purchase_date: customers.first_purchase_date,
+    total_orders: customers.total_orders,
+    total_spent: customers.total_spent,
   }).from(customers).where(eq(customers.account_id, accountId)).all();
 
-  const scored = calculateRFM(allCustomers);
-  for (const score of scored) {
+  const classified = classifyCustomers(allCustomers);
+  for (const result of classified) {
     await db.update(customers).set({
-      rfm_recency_score: score.rfm_recency_score, rfm_frequency_score: score.rfm_frequency_score,
-      rfm_monetary_score: score.rfm_monetary_score, rfm_total_score: score.rfm_total_score,
-      rfm_segment: score.rfm_segment, updated_at: new Date().toISOString(),
-    }).where(eq(customers.id, score.id)).run();
+      rfm_segment: result.rfm_segment,
+      rfm_recency_score: null,
+      rfm_frequency_score: null,
+      rfm_monetary_score: null,
+      rfm_total_score: null,
+      updated_at: new Date().toISOString(),
+    }).where(eq(customers.id, result.id)).run();
   }
 }
