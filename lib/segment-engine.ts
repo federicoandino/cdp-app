@@ -126,15 +126,14 @@ function mapFieldToColumn(field: string): string | null {
 }
 
 export const RFM_SEGMENT_FILTERS: Record<string, SegmentFilter[]> = {
-  "Campeones": [{ id: "r", field: "rfm_segment", operator: "eq", value: "Campeones" }],
-  "Clientes Leales": [{ id: "r", field: "rfm_segment", operator: "eq", value: "Clientes Leales" }],
-  "Potencial de Lealtad": [{ id: "r", field: "rfm_segment", operator: "eq", value: "Potencial de Lealtad" }],
-  "Clientes Nuevos": [{ id: "r", field: "rfm_segment", operator: "eq", value: "Clientes Nuevos" }],
-  "Prometedores": [{ id: "r", field: "rfm_segment", operator: "eq", value: "Prometedores" }],
-  "Necesitan Atención": [{ id: "r", field: "rfm_segment", operator: "eq", value: "Necesitan Atención" }],
-  "A Punto de Dormir": [{ id: "r", field: "rfm_segment", operator: "eq", value: "A Punto de Dormir" }],
-  "En Riesgo": [{ id: "r", field: "rfm_segment", operator: "eq", value: "En Riesgo" }],
-  "No Puedo Perderlos": [{ id: "r", field: "rfm_segment", operator: "eq", value: "No Puedo Perderlos" }],
-  "Hibernando": [{ id: "r", field: "rfm_segment", operator: "eq", value: "Hibernando" }],
-  "Perdidos": [{ id: "r", field: "rfm_segment", operator: "eq", value: "Perdidos" }],
+  "Campeones":             [{ id: "r", field: "rfm_segment", operator: "eq", value: "Campeones" }],
+  "Clientes Fieles":       [{ id: "r", field: "rfm_segment", operator: "eq", value: "Clientes Fieles" }],
+  "Potenciales Fieles":    [{ id: "r", field: "rfm_segment", operator: "eq", value: "Potenciales Fieles" }],
+  "Nuevos Clientes":       [{ id: "r", field: "rfm_segment", operator: "eq", value: "Nuevos Clientes" }],
+  "Clientes Prometedores": [{ id: "r", field: "rfm_segment", operator: "eq", value: "Clientes Prometedores" }],
+  "Requieren Atención":    [{ id: "r", field: "rfm_segment", operator: "eq", value: "Requieren Atención" }],
+  "A Punto de Inactivarse":[{ id: "r", field: "rfm_segment", operator: "eq", value: "A Punto de Inactivarse" }],
+  "En Riesgo de Perderse": [{ id: "r", field: "rfm_segment", operator: "eq", value: "En Riesgo de Perderse" }],
+  "No Puedes Perderlos":   [{ id: "r", field: "rfm_segment", operator: "eq", value: "No Puedes Perderlos" }],
+  "Hibernando":            [{ id: "r", field: "rfm_segment", operator: "eq", value: "Hibernando" }],
 };

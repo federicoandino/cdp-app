@@ -66,7 +66,7 @@ export async function POST() {
         await db.insert(segments).values({
           account_id: accountId,
           name: segmentName,
-          description: `Segmento RFM automático: ${segmentName}`,
+          description: config.find((r) => r.name === segmentName)?.description ?? `Segmento RFM: ${segmentName}`,
           filters: [{ id: "rfm", field: "rfm_segment", operator: "eq", value: segmentName }],
           customer_count: count,
           is_rfm_auto: true,
