@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { evaluateSegmentCount } from "@/lib/segment-engine";
 import type { SegmentFilter } from "@/db/schema";

@@ -1,5 +1,6 @@
 "use client";
 
+import { Suspense } from "react";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Plus, Trash2, Save, Eye, Users, ArrowLeft, Loader2 } from "lucide-react";
@@ -69,7 +70,7 @@ const OPERATORS_FOR_TYPE: Record<string, { key: SegmentFilterOperator; label: st
 
 let filterIdCounter = 0;
 
-export default function CreateSegmentPage() {
+function CreateSegmentPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const editId = searchParams.get("edit");
@@ -444,4 +445,8 @@ export default function CreateSegmentPage() {
       )}
     </div>
   );
+}
+
+export default function CreateSegmentPage() {
+  return <Suspense><CreateSegmentPageInner /></Suspense>;
 }
