@@ -4,9 +4,10 @@ import fs from "fs";
 import path from "path";
 import db from "@/db";
 import { customers, segments } from "@/db/schema";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, and } from "drizzle-orm";
 import { calculateRFM, RFM_SEGMENTS } from "@/lib/rfm";
 import { DEFAULT_THRESHOLDS, type SegmentThreshold } from "@/lib/rfm-config";
+import { getAccountId } from "@/lib/get-account-id";
 
 function loadConfig(): SegmentThreshold[] {
   try {
@@ -18,87 +19,64 @@ function loadConfig(): SegmentThreshold[] {
 
 export async function POST() {
   try {
-    // Get all customers with purchase data
-    const allCustomers = await db
-      .select({
-        id: customers.id,
-        last_purchase_date: customers.last_purchase_date,
-        total_orders: customers.total_orders,
-        total_spent: customers.total_spent,
-      })
-      .from(customers)
-      .all();
+    const accountId = getAccountId();
+
+    const allCustomers = await db.select({
+      id: customers.id,
+      last_purchase_date: customers.last_purchase_date,
+      total_orders: customers.total_orders,
+      total_spent: customers.total_spent,
+    }).from(customers).where(eq(customers.account_id, accountId)).all();
 
     if (allCustomers.length === 0) {
       return NextResponse.json({ message: "No hay clientes para calcular RFM", updated: 0 });
     }
 
-    // Calculate RFM scores using saved config (or defaults)
     const config = loadConfig();
     const scored = calculateRFM(allCustomers, config);
 
-    // Update customers
     for (const score of scored) {
-      await db.update(customers)
-        .set({
-          rfm_recency_score: score.rfm_recency_score,
-          rfm_frequency_score: score.rfm_frequency_score,
-          rfm_monetary_score: score.rfm_monetary_score,
-          rfm_total_score: score.rfm_total_score,
-          rfm_segment: score.rfm_segment,
-          updated_at: new Date().toISOString(),
-        })
-        .where(eq(customers.id, score.id))
-        .run();
+      await db.update(customers).set({
+        rfm_recency_score: score.rfm_recency_score,
+        rfm_frequency_score: score.rfm_frequency_score,
+        rfm_monetary_score: score.rfm_monetary_score,
+        rfm_total_score: score.rfm_total_score,
+        rfm_segment: score.rfm_segment,
+        updated_at: new Date().toISOString(),
+      }).where(and(eq(customers.id, score.id), eq(customers.account_id, accountId))).run();
     }
 
-    // Update/create RFM auto segments
     for (const segmentName of RFM_SEGMENTS) {
       if (segmentName === "Sin Clasificar") continue;
 
-      // Count customers in this segment
-      const countResult = await db
-        .select({ count: sql<number>`count(*)` })
+      const countResult = await db.select({ count: sql<number>`count(*)` })
         .from(customers)
-        .where(eq(customers.rfm_segment, segmentName))
+        .where(and(eq(customers.account_id, accountId), eq(customers.rfm_segment, segmentName)))
         .get();
       const count = countResult?.count ?? 0;
 
-      // Check if segment exists
-      const existing = await db
-        .select()
-        .from(segments)
-        .where(eq(segments.name, segmentName))
-        .get();
+      const existing = await db.select().from(segments)
+        .where(and(eq(segments.account_id, accountId), eq(segments.name, segmentName))).get();
 
       if (existing) {
-        await db.update(segments)
-          .set({
-            customer_count: count,
-            updated_at: new Date().toISOString(),
-          })
-          .where(eq(segments.id, existing.id))
-          .run();
+        await db.update(segments).set({
+          customer_count: count, updated_at: new Date().toISOString(),
+        }).where(eq(segments.id, existing.id)).run();
       } else {
-        await db.insert(segments)
-          .values({
-            name: segmentName,
-            description: `Segmento RFM automático: ${segmentName}`,
-            filters: [{ id: "rfm", field: "rfm_segment", operator: "eq", value: segmentName }],
-            customer_count: count,
-            is_rfm_auto: true,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          })
-          .run();
+        await db.insert(segments).values({
+          account_id: accountId,
+          name: segmentName,
+          description: `Segmento RFM automático: ${segmentName}`,
+          filters: [{ id: "rfm", field: "rfm_segment", operator: "eq", value: segmentName }],
+          customer_count: count,
+          is_rfm_auto: true,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }).run();
       }
     }
 
-    return NextResponse.json({
-      message: "RFM recalculado exitosamente",
-      updated: scored.length,
-      total: allCustomers.length,
-    });
+    return NextResponse.json({ message: "RFM recalculado exitosamente", updated: scored.length, total: allCustomers.length });
   } catch (error) {
     console.error("POST /api/segments/rfm error:", error);
     return NextResponse.json({ error: "Error al calcular RFM" }, { status: 500 });
@@ -107,29 +85,22 @@ export async function POST() {
 
 export async function GET() {
   try {
-    // Get RFM summary stats
-    const rfmSegments = await db
-      .select({
-        segment: customers.rfm_segment,
-        count: sql<number>`count(*)`,
-        avg_ticket: sql<number>`avg(customers.average_ticket)`,
-        total_revenue: sql<number>`sum(customers.total_spent)`,
-      })
-      .from(customers)
-      .groupBy(customers.rfm_segment)
-      .all();
+    const accountId = getAccountId();
 
-    // Get RFM matrix data (recency vs frequency)
-    const matrixData = await db
-      .select({
-        recency: customers.rfm_recency_score,
-        frequency: customers.rfm_frequency_score,
-        count: sql<number>`count(*)`,
-      })
-      .from(customers)
-      .where(sql`customers.rfm_recency_score IS NOT NULL`)
-      .groupBy(customers.rfm_recency_score, customers.rfm_frequency_score)
-      .all();
+    const rfmSegments = await db.select({
+      segment: customers.rfm_segment,
+      count: sql<number>`count(*)`,
+      avg_ticket: sql<number>`avg(customers.average_ticket)`,
+      total_revenue: sql<number>`sum(customers.total_spent)`,
+    }).from(customers).where(eq(customers.account_id, accountId)).groupBy(customers.rfm_segment).all();
+
+    const matrixData = await db.select({
+      recency: customers.rfm_recency_score,
+      frequency: customers.rfm_frequency_score,
+      count: sql<number>`count(*)`,
+    }).from(customers)
+      .where(sql`customers.account_id = ${accountId} AND customers.rfm_recency_score IS NOT NULL`)
+      .groupBy(customers.rfm_recency_score, customers.rfm_frequency_score).all();
 
     return NextResponse.json({ segments: rfmSegments, matrix: matrixData });
   } catch (error) {

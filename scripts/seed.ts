@@ -5,12 +5,15 @@
  * Run: npm run seed
  */
 
-import Database from "better-sqlite3";
-import path from "path";
+import { createClient } from "@libsql/client";
+import { drizzle } from "drizzle-orm/libsql";
+import * as schema from "../db/schema";
 
-const sqlite = new Database(path.join(process.cwd(), "cdp.db"));
-sqlite.pragma("journal_mode = WAL");
-sqlite.pragma("foreign_keys = OFF");
+const client = createClient({
+  url: process.env.TURSO_DATABASE_URL ?? "file:./cdp.db",
+  authToken: process.env.TURSO_AUTH_TOKEN,
+});
+const db = drizzle(client, { schema });
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -214,106 +217,78 @@ function buildOrderItems(): OrderItem[] {
   return items;
 }
 
-// ─── Limpiar DB ───────────────────────────────────────────────────────────────
-
-console.log("🗑  Limpiando base de datos...");
-sqlite.exec(`
-  DELETE FROM order_items;
-  DELETE FROM orders;
-  DELETE FROM customers;
-  DELETE FROM segments;
-  DELETE FROM imports;
-  DELETE FROM sqlite_sequence WHERE name IN ('customers','orders','order_items','segments','imports');
-`);
-
-// ─── Prepared statements ──────────────────────────────────────────────────────
-
-const insertCustomer = sqlite.prepare(`
-  INSERT INTO customers
-    (first_name,last_name,email,phone,gender,city,state,country,
-     first_purchase_date,last_purchase_date,total_orders,total_spent,average_ticket,source)
-  VALUES
-    (@first_name,@last_name,@email,@phone,@gender,@city,@state,@country,
-     @first_purchase_date,@last_purchase_date,@total_orders,@total_spent,@average_ticket,@source)
-`);
-
-const insertOrder = sqlite.prepare(`
-  INSERT INTO orders
-    (customer_id,order_number,order_date,channel,store_name,status,
-     subtotal,discount,tax,total,payment_method,currency,source_file)
-  VALUES
-    (@customer_id,@order_number,@order_date,@channel,@store_name,@status,
-     @subtotal,@discount,@tax,@total,@payment_method,@currency,@source_file)
-`);
-
-const insertItem = sqlite.prepare(`
-  INSERT INTO order_items (order_id,sku,product_name,category,brand,quantity,unit_price,total_price)
-  VALUES (@order_id,@sku,@product_name,@category,@brand,@quantity,@unit_price,@total_price)
-`);
-
-const updateCustomer = sqlite.prepare(`
-  UPDATE customers SET total_orders=@to, total_spent=@ts, average_ticket=@at WHERE id=@id
-`);
-
-const insertImport = sqlite.prepare(`
-  INSERT INTO imports (file_name,file_type,import_type,rows_total,rows_imported,rows_skipped,rows_duplicates_merged,status)
-  VALUES (@file_name,@file_type,@import_type,@rows_total,@rows_imported,@rows_skipped,@rows_duplicates_merged,@status)
-`);
-
 // ─── Generar datos ────────────────────────────────────────────────────────────
 
 const TODAY = "2026-03-27";
 const TOTAL_CUSTOMERS = 620;
-// Order count distribution: [qty, weight]
 const ORDER_DIST: [number, number][] = [[1,55],[2,22],[3,12],[4,7],[5,3],[6,1]];
 const CHANNELS  = ["ecommerce","ecommerce","ecommerce","tienda física","tienda física","marketplace"];
 const PAYMENTS  = ["Tarjeta de crédito","Tarjeta de crédito","Tarjeta de débito","Efectivo","Transferencia bancaria","MercadoPago"];
 const STORES    = ["Bariloche Centro","Neuquén Capital","Comodoro Rivadavia","Puerto Madryn","Esquel"];
 
-const emailCount: Map<string, number> = new Map();
-let orderSeq = 1;
-let statCustomers = 0, statOrders = 0, statItems = 0;
+type InStatement = { sql: string; args: (string | number | null)[] };
 
-console.log("🐾  Generando datos de Tienda de Mascotas...");
+const BATCH_SIZE = 300;
 
-const seedAll = sqlite.transaction(() => {
+async function main() {
+  console.log("🗑  Limpiando base de datos...");
+  await client.batch([
+    { sql: "DELETE FROM order_items", args: [] },
+    { sql: "DELETE FROM orders",      args: [] },
+    { sql: "DELETE FROM segments",    args: [] },
+    { sql: "DELETE FROM imports",     args: [] },
+    { sql: "DELETE FROM customers",   args: [] },
+    { sql: "DELETE FROM accounts",    args: [] },
+  ], "write");
+
+  // Create default account
+  const accountResult = await client.execute({
+    sql: "INSERT INTO accounts (name, created_at) VALUES (?, ?) RETURNING id",
+    args: ["Tienda de Mascotas", new Date().toISOString()],
+  });
+  const accountId = Number((accountResult.rows[0] as unknown as { id: number }).id);
+
+  console.log("🐾  Generando datos de Tienda de Mascotas...");
+
+  const emailCount: Map<string, number> = new Map();
+  let orderSeq = 1;
+  let customerId = 0, orderId = 0, orderItemId = 0;
+  let statOrders = 0, statItems = 0;
+  const stmts: InStatement[] = [];
+  const now = new Date().toISOString();
+
+  const flush = async () => {
+    if (stmts.length === 0) return;
+    const chunks: InStatement[][] = [];
+    for (let i = 0; i < stmts.length; i += BATCH_SIZE) chunks.push(stmts.slice(i, i + BATCH_SIZE));
+    for (const chunk of chunks) await client.batch(chunk, "write");
+    stmts.length = 0;
+  };
+
   for (let c = 0; c < TOTAL_CUSTOMERS; c++) {
     const gender    = Math.random() < 0.52 ? "F" : "M";
     const firstName = gender === "F" ? rand(FEMALE_NAMES) : rand(MALE_NAMES);
     const lastName  = rand(SURNAMES) + (Math.random() < 0.25 ? ` ${rand(SURNAMES)}` : "");
     const location  = weightedPick(CITIES, CITIES.map(x => x.w));
 
-    // unique email
-    const base      = `${normalizeStr(firstName)}.${normalizeStr(lastName.split(" ")[0])}`;
-    const cnt       = (emailCount.get(base) ?? 0) + 1;
+    const base  = `${normalizeStr(firstName)}.${normalizeStr(lastName.split(" ")[0])}`;
+    const cnt   = (emailCount.get(base) ?? 0) + 1;
     emailCount.set(base, cnt);
-    const domains   = ["gmail.com","hotmail.com","yahoo.com.ar","outlook.com"];
-    const email     = cnt === 1 ? `${base}@${rand(domains)}` : `${base}${cnt}@${rand(domains)}`;
+    const domains = ["gmail.com","hotmail.com","yahoo.com.ar","outlook.com"];
+    const email   = cnt === 1 ? `${base}@${rand(domains)}` : `${base}${cnt}@${rand(domains)}`;
 
-    // Number of orders for this customer
     const numOrders = weightedPick(ORDER_DIST, ORDER_DIST.map(d => d[1]))[0];
-
-    // First purchase: Jan 2023 – May 2025
-    const firstDate  = randomDateBetween("2023-01-10", "2025-05-01");
+    const firstDate = randomDateBetween("2023-01-10", "2025-05-01");
     const orderDates: string[] = [firstDate];
-
     for (let i = 1; i < numOrders; i++) {
       const next = addDays(orderDates[i - 1], daysToRepurchase());
       if (next > TODAY) break;
       orderDates.push(next);
     }
-
     const lastDate = orderDates[orderDates.length - 1];
 
-    const cRow = insertCustomer.run({
-      first_name: firstName, last_name: lastName,
-      email, phone: `+549${randInt(2940000000, 2999999999)}`,
-      gender, city: location.city, state: location.state, country: "Argentina",
-      first_purchase_date: firstDate, last_purchase_date: lastDate,
-      total_orders: 0, total_spent: 0, average_ticket: 0, source: "seed",
-    });
-    const customerId = cRow.lastInsertRowid as number;
-    statCustomers++;
+    customerId++;
+    stmts.push({ sql: `INSERT INTO customers (id,account_id,first_name,last_name,email,phone,gender,city,state,country,first_purchase_date,last_purchase_date,total_orders,total_spent,average_ticket,source,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,0,0,0,?,?,?)`, args: [customerId, accountId, firstName, lastName, email, `+549${randInt(2940000000, 2999999999)}`, gender, location.city, location.state, "Argentina", firstDate, lastDate, "seed", now, now] });
 
     let completedOrders = 0;
     let totalSpent = 0;
@@ -325,76 +300,42 @@ const seedAll = sqlite.transaction(() => {
       const subtotal = items.reduce((s, i) => s + i.total_price, 0);
       const discount = Math.random() < 0.18 ? Math.round(subtotal * (0.05 + Math.random() * 0.10)) : 0;
       const total    = subtotal - discount;
+      const storeName = channel === "ecommerce" ? "Tienda Online" : channel === "marketplace" ? "MercadoLibre" : rand(STORES);
 
-      const oRow = insertOrder.run({
-        customer_id:    customerId,
-        order_number:   `TDM-${String(orderSeq++).padStart(6, "0")}`,
-        order_date:     orderDate,
-        channel,
-        store_name:     channel === "ecommerce" ? "Tienda Online" : channel === "marketplace" ? "MercadoLibre" : rand(STORES),
-        status,
-        subtotal,
-        discount,
-        tax:            0,
-        total,
-        payment_method: rand(PAYMENTS),
-        currency:       "ARS",
-        source_file:    "seed-mascotas",
-      });
-      const orderId = oRow.lastInsertRowid as number;
+      orderId++;
+      stmts.push({ sql: `INSERT INTO orders (id,account_id,customer_id,order_number,order_date,channel,store_name,status,subtotal,discount,tax,total,payment_method,currency,source_file,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,0,?,?,?,?,?)`, args: [orderId, accountId, customerId, `TDM-${String(orderSeq++).padStart(6,"0")}`, orderDate, channel, storeName, status, subtotal, discount, total, rand(PAYMENTS), "ARS", "seed-mascotas", now] });
       statOrders++;
 
       for (const item of items) {
-        insertItem.run({ order_id: orderId, ...item });
+        orderItemId++;
+        stmts.push({ sql: `INSERT INTO order_items (id,order_id,sku,product_name,category,brand,quantity,unit_price,total_price) VALUES (?,?,?,?,?,?,?,?,?)`, args: [orderItemId, orderId, item.sku, item.product_name, item.category, item.brand, item.quantity, item.unit_price, item.total_price] });
         statItems++;
       }
-
-      if (status === "completada") {
-        completedOrders++;
-        totalSpent += total;
-      }
+      if (status === "completada") { completedOrders++; totalSpent += total; }
     }
 
-    updateCustomer.run({
-      id: customerId,
-      to: completedOrders,
-      ts: Math.round(totalSpent),
-      at: completedOrders > 0 ? Math.round(totalSpent / completedOrders) : 0,
-    });
+    stmts.push({ sql: `UPDATE customers SET total_orders=?,total_spent=?,average_ticket=? WHERE id=?`, args: [completedOrders, Math.round(totalSpent), completedOrders > 0 ? Math.round(totalSpent / completedOrders) : 0, customerId] });
+
+    if (stmts.length >= BATCH_SIZE * 3) {
+      await flush();
+      process.stdout.write(`\r   Progreso: ${c + 1}/${TOTAL_CUSTOMERS} clientes...`);
+    }
   }
+  await flush();
+  console.log();
 
-  insertImport.run({
-    file_name: "seed-tienda-mascotas.csv",
-    file_type: "csv",
-    import_type: "orders",
-    rows_total: statOrders,
-    rows_imported: statOrders,
-    rows_skipped: 0,
-    rows_duplicates_merged: 0,
-    status: "completado",
-  });
-});
+  await client.execute({ sql: `INSERT INTO imports (account_id,file_name,file_type,import_type,rows_total,rows_imported,rows_skipped,rows_duplicates_merged,status,error_log,created_at) VALUES (?,?,?,?,?,?,0,0,?,?,?)`, args: [accountId, "seed-tienda-mascotas.csv", "csv", "orders", statOrders, statOrders, "completado", "[]", now] });
 
-seedAll();
+  const statsResult = await client.execute(`SELECT COUNT(DISTINCT c.id) AS customers, COUNT(DISTINCT CASE WHEN c.total_orders >= 2 THEN c.id END) AS repeat_customers, COUNT(o.id) AS orders, CAST(ROUND(AVG(o.total)) AS INTEGER) AS avg_ticket FROM customers c LEFT JOIN orders o ON o.customer_id = c.id AND o.status = 'completada'`);
+  const s = statsResult.rows[0] as unknown as { customers: number; repeat_customers: number; orders: number; avg_ticket: number };
 
-// ─── Resumen ──────────────────────────────────────────────────────────────────
+  console.log(`\n✅ Seed completado — Tienda de Mascotas (Patagonia)`);
+  console.log(`   Cuenta:           ${accountId} (Tienda de Mascotas)`);
+  console.log(`   Clientes:         ${s.customers}`);
+  console.log(`   Con recompra:     ${s.repeat_customers}`);
+  console.log(`   Órdenes:          ${s.orders}`);
+  console.log(`   Ticket promedio:  $${Number(s.avg_ticket).toLocaleString("es-AR")}`);
+  console.log(`   Items generados:  ${statItems}`);
+}
 
-const stats = sqlite.prepare(`
-  SELECT
-    COUNT(DISTINCT c.id) AS customers,
-    COUNT(DISTINCT CASE WHEN c.total_orders >= 2 THEN c.id END) AS repeat_customers,
-    COUNT(o.id) AS orders,
-    CAST(ROUND(AVG(o.total)) AS INTEGER) AS avg_ticket
-  FROM customers c
-  LEFT JOIN orders o ON o.customer_id = c.id AND o.status = 'completada'
-`).get() as { customers: number; repeat_customers: number; orders: number; avg_ticket: number };
-
-console.log(`\n✅ Seed completado — Tienda de Mascotas (Patagonia)`);
-console.log(`   Clientes:         ${stats.customers}`);
-console.log(`   Con recompra:     ${stats.repeat_customers}`);
-console.log(`   Órdenes:          ${stats.orders}`);
-console.log(`   Ticket promedio:  $${Number(stats.avg_ticket).toLocaleString("es-AR")}`);
-console.log(`   Items generados:  ${statItems}`);
-
-sqlite.pragma("foreign_keys = ON");
-sqlite.close();
+main().catch((e) => { console.error(e); process.exit(1); });

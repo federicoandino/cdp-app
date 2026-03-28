@@ -3,9 +3,11 @@ import { NextRequest, NextResponse } from "next/server";
 import db from "@/db";
 import { customers } from "@/db/schema";
 import { sql, eq, like, or, desc, asc, and } from "drizzle-orm";
+import { getAccountId } from "@/lib/get-account-id";
 
 export async function GET(request: NextRequest) {
   try {
+    const accountId = getAccountId();
     const { searchParams } = new URL(request.url);
     const page = parseInt(searchParams.get("page") ?? "1");
     const limit = parseInt(searchParams.get("limit") ?? "50");
@@ -15,8 +17,7 @@ export async function GET(request: NextRequest) {
     const sortOrder = searchParams.get("sortOrder") ?? "desc";
     const offset = (page - 1) * limit;
 
-    // Build conditions
-    const conditions = [];
+    const conditions = [eq(customers.account_id, accountId)];
 
     if (search) {
       conditions.push(
@@ -25,7 +26,7 @@ export async function GET(request: NextRequest) {
           like(customers.last_name, `%${search}%`),
           like(customers.email, `%${search}%`),
           like(customers.phone, `%${search}%`)
-        )
+        )!
       );
     }
 
@@ -33,9 +34,8 @@ export async function GET(request: NextRequest) {
       conditions.push(eq(customers.rfm_segment, segment));
     }
 
-    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+    const whereClause = and(...conditions);
 
-    // Get total count
     const countResult = await db
       .select({ count: sql<number>`count(*)` })
       .from(customers)
@@ -44,20 +44,13 @@ export async function GET(request: NextRequest) {
 
     const total = countResult?.count ?? 0;
 
-    // Get sorted columns
     type CustomerKey = keyof typeof customers;
     const validSortColumns: Record<string, CustomerKey> = {
-      first_name: "first_name",
-      last_name: "last_name",
-      email: "email",
-      total_orders: "total_orders",
-      total_spent: "total_spent",
-      average_ticket: "average_ticket",
-      last_purchase_date: "last_purchase_date",
-      rfm_total_score: "rfm_total_score",
-      rfm_segment: "rfm_segment",
-      city: "city",
-      created_at: "created_at",
+      first_name: "first_name", last_name: "last_name", email: "email",
+      total_orders: "total_orders", total_spent: "total_spent",
+      average_ticket: "average_ticket", last_purchase_date: "last_purchase_date",
+      rfm_total_score: "rfm_total_score", rfm_segment: "rfm_segment",
+      city: "city", created_at: "created_at",
     };
 
     const colKey = validSortColumns[sortBy] ?? "created_at";
@@ -74,13 +67,7 @@ export async function GET(request: NextRequest) {
       .offset(offset)
       .all();
 
-    return NextResponse.json({
-      data: rows,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    });
+    return NextResponse.json({ data: rows, total, page, limit, totalPages: Math.ceil(total / limit) });
   } catch (error) {
     console.error("GET /api/customers error:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

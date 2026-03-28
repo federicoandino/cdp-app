@@ -2,9 +2,12 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import db from "@/db";
 import { sql } from "drizzle-orm";
+import { getAccountId } from "@/lib/get-account-id";
 
 export async function GET() {
   try {
+    const accountId = getAccountId();
+
     const rows = await db.all(sql`
       WITH ranked AS (
         SELECT
@@ -12,7 +15,8 @@ export async function GET() {
           order_date,
           ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY order_date ASC) AS rn
         FROM orders
-        WHERE status != 'cancelada' AND status != 'devuelta'
+        WHERE account_id = ${accountId}
+          AND status != 'cancelada' AND status != 'devuelta'
       ),
       pairs AS (
         SELECT
@@ -21,9 +25,7 @@ export async function GET() {
         JOIN ranked b ON a.customer_id = b.customer_id AND b.rn = 2
         WHERE a.rn = 1
       )
-      SELECT
-        days,
-        COUNT(*) AS count
+      SELECT days, COUNT(*) AS count
       FROM pairs
       WHERE days >= 0
       GROUP BY days
@@ -31,27 +33,21 @@ export async function GET() {
     `) as { days: number; count: number }[];
 
     const total = rows.reduce((sum, r) => sum + r.count, 0);
-
     let cumulative = 0;
     const data = rows.map((r) => {
       cumulative += r.count;
       return {
-        day: r.days,
-        count: r.count,
-        cumulative,
+        day: r.days, count: r.count, cumulative,
         cumulative_pct: total > 0 ? Math.round((cumulative / total) * 1000) / 10 : 0,
       };
     });
 
-    // Key milestone: first day where cumulative_pct >= threshold
     const milestones = [50, 70, 80, 90].map((pct) => {
       const point = data.find((d) => d.cumulative_pct >= pct);
       return { pct, day: point?.day ?? null };
     });
 
-    // Median day
     const medianPoint = data.find((d) => d.cumulative_pct >= 50);
-
     return NextResponse.json({ data, total, milestones, median: medianPoint?.day ?? null });
   } catch (err) {
     console.error("Error en análisis de recompra:", err);
