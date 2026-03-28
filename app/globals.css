@@ -55,7 +55,8 @@
   }
 
   .kpi-card {
-    @apply bg-white rounded-xl shadow-card p-5 border border-gray-100 min-h-[9.5rem] flex flex-col justify-between;
+    @apply bg-white rounded-xl shadow-card p-5 border border-gray-100 flex flex-col justify-between;
+    min-height: 9.5rem;
   }
 
   .data-table {
