@@ -107,4 +107,43 @@
     background-size: 200% 100%;
     animation: shimmer 1.5s infinite;
   }
+
+  /* ── Dark mode overrides ── */
+  .dark body {
+    background: #0F1117;
+    color: #F9FAFB;
+  }
+  .dark .page-title {
+    @apply text-gray-100;
+  }
+  .dark .section-title {
+    @apply text-gray-100;
+  }
+  .dark .kpi-card {
+    @apply bg-[#1A1D26] border-[#2D3039];
+  }
+  .dark .data-table thead tr {
+    @apply bg-[#1A1D26] border-[#2D3039];
+  }
+  .dark .data-table thead th {
+    @apply text-gray-400;
+  }
+  .dark .data-table tbody tr {
+    @apply border-[#2D3039] hover:bg-[#1A1D26];
+  }
+  .dark .data-table tbody td {
+    @apply text-gray-300;
+  }
+  .dark .btn-secondary {
+    @apply bg-[#1A1D26] border-[#2D3039] text-gray-300 hover:bg-[#23263a];
+  }
+  .dark .btn-ghost {
+    @apply text-gray-400 hover:text-gray-100 hover:bg-[#1A1D26];
+  }
+  .dark .input-field {
+    @apply bg-[#1A1D26] border-[#2D3039] text-gray-100 placeholder:text-gray-500;
+  }
+  .dark .skeleton {
+    @apply bg-[#2D3039];
+  }
 }
