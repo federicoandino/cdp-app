@@ -34,7 +34,7 @@ export async function GET() {
       .get();
     const totalOrders = totalOrdersResult?.count ?? 0;
 
-    // --- Revenue by month (last 12 months) ---
+    // --- Revenue by month (last 12 months with data) ---
     const revenueByMonth = await db
       .select({
         month: sql<string>`strftime('%Y-%m', order_date)`,
@@ -42,10 +42,12 @@ export async function GET() {
         orders: sql<number>`count(*)`,
       })
       .from(orders)
-      .where(sql`order_date >= date('now', '-12 months')`)
+      .where(sql`order_date IS NOT NULL`)
       .groupBy(sql`strftime('%Y-%m', order_date)`)
-      .orderBy(sql`strftime('%Y-%m', order_date)`)
-      .all();
+      .orderBy(sql`strftime('%Y-%m', order_date) DESC`)
+      .limit(12)
+      .all()
+      .then((rows) => rows.reverse());
 
     // --- Customers by RFM segment ---
     const rfmDistribution = await db
@@ -87,17 +89,19 @@ export async function GET() {
       .limit(5)
       .all();
 
-    // --- Customer growth by month ---
+    // --- Customer growth by month (last 12 months with data) ---
     const customerGrowth = await db
       .select({
         month: sql<string>`strftime('%Y-%m', created_at)`,
         count: sql<number>`count(*)`,
       })
       .from(customers)
-      .where(sql`created_at >= date('now', '-12 months')`)
+      .where(sql`created_at IS NOT NULL`)
       .groupBy(sql`strftime('%Y-%m', created_at)`)
-      .orderBy(sql`strftime('%Y-%m', created_at)`)
-      .all();
+      .orderBy(sql`strftime('%Y-%m', created_at) DESC`)
+      .limit(12)
+      .all()
+      .then((rows) => rows.reverse());
 
     return NextResponse.json({
       kpis: {

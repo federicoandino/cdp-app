@@ -78,7 +78,7 @@ export default function DashboardPage() {
         <div className="page-header">
           <h1 className="page-title">Dashboard</h1>
         </div>
-        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-3 2xl:grid-cols-6 gap-4 mb-6">
           {Array.from({ length: 6 }).map((_, i) => (
             <KPICard key={i} title="" value="" loading />
           ))}
@@ -100,7 +100,7 @@ export default function DashboardPage() {
     .map((d) => ({ name: d.channel!, value: d.count }));
 
   return (
-    <div className="p-8 max-w-[1400px]">
+    <div className="p-6 max-w-[1400px]">
       {/* Header */}
       <div className="page-header">
         <div>
@@ -129,7 +129,7 @@ export default function DashboardPage() {
       )}
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-3 2xl:grid-cols-6 gap-4 mb-6">
         <KPICard
           title="Total clientes"
           value={formatNumber(kpis?.totalCustomers ?? 0)}
