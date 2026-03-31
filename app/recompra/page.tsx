@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from "react";
 import {
-  LineChart,
+  ComposedChart,
+  Bar,
   Line,
   XAxis,
   YAxis,
@@ -10,6 +11,7 @@ import {
   Tooltip,
   ReferenceLine,
   ResponsiveContainer,
+  Legend,
 } from "recharts";
 import { Users, TrendingUp, Clock, Info } from "lucide-react";
 import { formatNumber } from "@/lib/utils";
@@ -33,17 +35,17 @@ interface RecompraData {
   median: number | null;
 }
 
-function CustomTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: DataPoint }> }) {
+function CustomTooltip({ active, payload }: { active?: boolean; payload?: Array<{ name: string; value: number; payload: DataPoint }> }) {
   if (!active || !payload?.length) return null;
   const d = payload[0].payload as DataPoint;
   return (
     <div className="bg-white border border-gray-200 rounded-lg shadow-lg px-4 py-3 text-sm">
-      <p className="font-semibold text-gray-800 mb-1">Día {d.day}</p>
+      <p className="font-semibold text-gray-800 mb-2">Día {d.day}</p>
       <p className="text-gray-500">
-        <span className="font-medium text-gray-700">{formatNumber(d.count)}</span> clientes compraron por 2ª vez hoy
+        <span className="font-medium text-gray-700">{formatNumber(d.count)}</span> nuevas recompras
       </p>
       <p className="text-gray-500">
-        <span className="font-medium text-indigo-600">{d.cumulative_pct}%</span> del total recompró antes de este día
+        <span className="font-medium text-indigo-600">{d.cumulative_pct}%</span> acumulado
       </p>
       <p className="text-gray-400 text-xs mt-1">{formatNumber(d.cumulative)} clientes acumulados</p>
     </div>
@@ -138,7 +140,7 @@ export default function RecompraPage() {
       {/* Chart */}
       <div className="bg-white rounded-xl border border-gray-100 shadow-card p-6 mb-6">
         <div className="flex items-center justify-between mb-1">
-          <h2 className="section-title">Curva de recompra acumulada</h2>
+          <h2 className="section-title">Tiempo hasta la recompra</h2>
           {hasOutliers && (
             <span className="text-xs text-gray-400">
               Mostrando hasta 365 días (existen clientes con recompra posterior)
@@ -146,7 +148,7 @@ export default function RecompraPage() {
           )}
         </div>
         <p className="text-xs text-gray-400 mb-5">
-          Eje X: días desde la 1ª compra &nbsp;·&nbsp; Eje Y: clientes acumulados que hicieron su 2ª compra
+          Barras: nuevas recompras por día &nbsp;·&nbsp; Línea: % acumulado del total
         </p>
 
         {loading ? (
@@ -158,49 +160,79 @@ export default function RecompraPage() {
             No hay clientes con 2 o más compras aún
           </div>
         ) : (
-          <ResponsiveContainer width="100%" height={320}>
-            <LineChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+          <ResponsiveContainer width="100%" height={340}>
+            <ComposedChart data={chartData} margin={{ top: 10, right: 50, left: 0, bottom: 20 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
               <XAxis
                 dataKey="day"
-                tick={{ fontSize: 12, fill: "#9ca3af" }}
-                label={{ value: "Días desde la 1ª compra", position: "insideBottom", offset: -2, fontSize: 11, fill: "#9ca3af" }}
-                height={40}
+                tick={{ fontSize: 11, fill: "#9ca3af" }}
+                label={{ value: "Días desde la 1ª compra", position: "insideBottom", offset: -8, fontSize: 11, fill: "#9ca3af" }}
+                height={45}
               />
+              {/* Left Y axis: count */}
               <YAxis
-                tick={{ fontSize: 12, fill: "#9ca3af" }}
+                yAxisId="left"
+                tick={{ fontSize: 11, fill: "#9ca3af" }}
                 tickFormatter={(v) => formatNumber(v)}
                 width={60}
               />
+              {/* Right Y axis: cumulative % */}
+              <YAxis
+                yAxisId="right"
+                orientation="right"
+                domain={[0, 100]}
+                tick={{ fontSize: 11, fill: "#6366f1" }}
+                tickFormatter={(v) => `${v}%`}
+                width={45}
+              />
               <Tooltip content={<CustomTooltip />} />
+              <Legend
+                verticalAlign="top"
+                align="right"
+                wrapperStyle={{ fontSize: 12, paddingBottom: 8 }}
+                formatter={(value) => value === "count" ? "Recompras por día" : "% acumulado"}
+              />
 
               {milestone50?.day != null && (
                 <ReferenceLine
+                  yAxisId="left"
                   x={milestone50.day}
                   stroke="#94a3b8"
                   strokeDasharray="4 3"
-                  label={{ value: `50% → día ${milestone50.day}`, position: "top", fontSize: 11, fill: "#94a3b8" }}
+                  label={{ value: `50% · día ${milestone50.day}`, position: "insideTopLeft", fontSize: 10, fill: "#94a3b8" }}
                 />
               )}
 
               {milestone80?.day != null && (
                 <ReferenceLine
+                  yAxisId="left"
                   x={milestone80.day}
                   stroke="#6366f1"
                   strokeDasharray="4 3"
-                  label={{ value: `80% → día ${milestone80.day}`, position: "top", fontSize: 11, fill: "#6366f1" }}
+                  label={{ value: `80% · día ${milestone80.day}`, position: "insideTopLeft", fontSize: 10, fill: "#6366f1" }}
                 />
               )}
 
+              <Bar
+                yAxisId="left"
+                dataKey="count"
+                name="count"
+                fill="#c7d2fe"
+                radius={[2, 2, 0, 0]}
+                maxBarSize={20}
+              />
+
               <Line
+                yAxisId="right"
                 type="monotone"
-                dataKey="cumulative"
+                dataKey="cumulative_pct"
+                name="cumulative_pct"
                 stroke="#6366f1"
                 strokeWidth={2.5}
                 dot={false}
                 activeDot={{ r: 5, fill: "#6366f1" }}
               />
-            </LineChart>
+            </ComposedChart>
           </ResponsiveContainer>
         )}
 
@@ -232,9 +264,9 @@ export default function RecompraPage() {
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-sm">
           <div>
-            <p className="font-semibold text-gray-800 mb-1">Qué muestra la curva</p>
+            <p className="font-semibold text-gray-800 mb-1">Qué muestra el gráfico</p>
             <p className="text-gray-500 text-xs leading-relaxed">
-              Cada punto de la curva representa cuántos clientes acumulados realizaron su 2ª compra hasta ese día. Una curva que sube rápido indica que la mayoría recompra en poco tiempo.
+              Las barras muestran cuántos clientes hicieron su 2ª compra en cada día. La línea naranja representa el porcentaje acumulado — cuando llega a 80%, el 80% de tus clientes recurrentes ya recompró.
             </p>
           </div>
           <div>
