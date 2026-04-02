@@ -278,50 +278,21 @@ export async function POST(request: NextRequest) {
         await db.insert(order_items).values(itemValues.slice(i, i + 50)).run();
       }
 
-      // 8. Actualizar estadísticas de clientes en bulk
-      //    Agrupar órdenes por customerId y computar stats en memoria
-      const statsMap = new Map<number, { count: number; total: number; minDate: string; maxDate: string }>();
-      for (const { customerId, mapped: r } of validOrderRows) {
-        const date = r.order_date ? String(r.order_date) : "9999-99-99";
-        const total = r.total ? Number(r.total) : 0;
-        const prev = statsMap.get(customerId);
-        if (!prev) {
-          statsMap.set(customerId, { count: 1, total, minDate: date, maxDate: date });
-        } else {
-          prev.count++;
-          prev.total += total;
-          if (date < prev.minDate) prev.minDate = date;
-          if (date > prev.maxDate) prev.maxDate = date;
-        }
-      }
-
-      // También considerar órdenes previas que ya estaban en la DB
-      const affectedCustomerIds = [...statsMap.keys()];
-      for (let i = 0; i < affectedCustomerIds.length; i += 50) {
-        const chunk = affectedCustomerIds.slice(i, i + 50);
-        const dbStats = await db.select({
-          customer_id: orders.customer_id,
-          count: sql<number>`count(*)`,
-          total: sql<number>`sum(total)`,
-          minDate: sql<string>`min(order_date)`,
-          maxDate: sql<string>`max(order_date)`,
-        }).from(orders)
-          .where(inArray(orders.customer_id, chunk))
-          .groupBy(orders.customer_id).all();
-
-        await Promise.all(dbStats.map((s) => {
-          const totalOrders = s.count ?? 0;
-          const totalSpent  = s.total ?? 0;
-          return db.update(customers).set({
-            total_orders: totalOrders,
-            total_spent:  Math.round(totalSpent),
-            average_ticket: totalOrders > 0 ? Math.round(totalSpent / totalOrders) : 0,
-            first_purchase_date: s.minDate ?? null,
-            last_purchase_date:  s.maxDate ?? null,
-            updated_at: now,
-          }).where(eq(customers.id, s.customer_id!)).run();
-        }));
-      }
+      // 8. Actualizar estadísticas en un único query SQL (un solo round-trip)
+      await db.run(sql`
+        UPDATE customers
+        SET
+          total_orders        = (SELECT COUNT(*)   FROM orders WHERE orders.customer_id = customers.id),
+          total_spent         = (SELECT COALESCE(ROUND(SUM(total)),0) FROM orders WHERE orders.customer_id = customers.id),
+          average_ticket      = CASE
+            WHEN (SELECT COUNT(*) FROM orders WHERE orders.customer_id = customers.id) > 0
+            THEN (SELECT ROUND(SUM(total) / COUNT(*)) FROM orders WHERE orders.customer_id = customers.id)
+            ELSE 0 END,
+          first_purchase_date = (SELECT MIN(order_date) FROM orders WHERE orders.customer_id = customers.id),
+          last_purchase_date  = (SELECT MAX(order_date) FROM orders WHERE orders.customer_id = customers.id),
+          updated_at          = ${now}
+        WHERE account_id = ${accountId}
+      `);
     }
 
     await db.update(imports).set({
