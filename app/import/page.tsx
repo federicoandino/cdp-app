@@ -82,20 +82,38 @@ export default function ImportPage() {
   const handleImport = async () => {
     if (!parsedRows.length) return;
     setLoading(true);
+
+    const BATCH_SIZE = 500;
+    const fileName = file?.name ?? "import.csv";
+    const fileType = file?.name.endsWith(".xlsx") ? "xlsx" : "csv";
+    const accumulated: ImportResult = { importId: 0, imported: 0, skipped: 0, merged: 0, total: parsedRows.length, errors: [] };
+
     try {
-      const res = await fetch("/api/imports", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          importType,
-          fileName: file?.name ?? "import.csv",
-          fileType: file?.name.endsWith(".xlsx") ? "xlsx" : "csv",
-          rows: parsedRows,
-          columnMapping,
-        }),
-      });
-      const data = await res.json();
-      setResult(data);
+      for (let offset = 0; offset < parsedRows.length; offset += BATCH_SIZE) {
+        const batch = parsedRows.slice(offset, offset + BATCH_SIZE);
+        const res = await fetch("/api/imports", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            importType,
+            fileName,
+            fileType,
+            rows: batch,
+            columnMapping,
+          }),
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text);
+        }
+        const data: ImportResult = await res.json();
+        accumulated.importId = data.importId;
+        accumulated.imported += data.imported;
+        accumulated.skipped  += data.skipped;
+        accumulated.merged   += data.merged;
+        accumulated.errors.push(...data.errors);
+      }
+      setResult(accumulated);
       setStep("result");
     } catch (err) {
       alert("Error al importar: " + String(err));

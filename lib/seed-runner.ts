@@ -549,11 +549,11 @@ export async function checkAndSeed(): Promise<void> {
     await ensureSchema(client);
 
     const result = await client.execute(
-      "SELECT COUNT(*) as cnt FROM customers WHERE source = 'seed'"
+      "SELECT COUNT(*) as cnt FROM customers"
     );
     const count = Number((result.rows[0] as unknown as { cnt: number }).cnt);
 
-    if (count < 500) {
+    if (count < 10) {
       console.log("🌱  [auto-seed] Dataset de Tienda de Mascotas no encontrado — sembrando...");
       await runSeed(client, true);
     }
