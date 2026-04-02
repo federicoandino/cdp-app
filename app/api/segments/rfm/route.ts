@@ -1,8 +1,7 @@
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 import { NextResponse } from "next/server";
-import fs from "fs";
-import path from "path";
-import db from "@/db";
+import db, { client } from "@/db";
 import { customers, segments } from "@/db/schema";
 import { eq, sql, and } from "drizzle-orm";
 import { calculateRFM, RFM_SEGMENTS } from "@/lib/rfm";
@@ -11,8 +10,11 @@ import { getAccountId } from "@/lib/get-account-id";
 
 function loadConfig(): SegmentThreshold[] {
   try {
-    const p = path.join(process.cwd(), "rfm-config.json");
-    if (fs.existsSync(p)) return JSON.parse(fs.readFileSync(p, "utf-8"));
+    // rfm-config.json solo existe en local; en Vercel usa defaults
+    const { existsSync, readFileSync } = require("fs");
+    const { join } = require("path");
+    const p = join(process.cwd(), "rfm-config.json");
+    if (existsSync(p)) return JSON.parse(readFileSync(p, "utf-8"));
   } catch {}
   return DEFAULT_THRESHOLDS;
 }
@@ -20,6 +22,7 @@ function loadConfig(): SegmentThreshold[] {
 export async function POST() {
   try {
     const accountId = getAccountId();
+    const now = new Date().toISOString();
 
     const allCustomers = await db.select({
       id: customers.id,
@@ -35,46 +38,52 @@ export async function POST() {
     const config = loadConfig();
     const scored = calculateRFM(allCustomers, config);
 
-    for (const score of scored) {
-      await db.update(customers).set({
-        rfm_recency_score: score.rfm_recency_score,
-        rfm_frequency_score: score.rfm_frequency_score,
-        rfm_monetary_score: score.rfm_monetary_score,
-        rfm_total_score: score.rfm_total_score,
-        rfm_segment: score.rfm_segment,
-        updated_at: new Date().toISOString(),
-      }).where(and(eq(customers.id, score.id), eq(customers.account_id, accountId))).run();
+    // ── Bulk update RFM scores: todos los clientes en un solo round-trip ──────
+    const BATCH = 500;
+    for (let i = 0; i < scored.length; i += BATCH) {
+      const chunk = scored.slice(i, i + BATCH);
+      await client.batch(
+        chunk.map((s) => ({
+          sql: `UPDATE customers SET rfm_recency_score=?, rfm_frequency_score=?, rfm_monetary_score=?, rfm_total_score=?, rfm_segment=?, updated_at=? WHERE id=? AND account_id=?`,
+          args: [s.rfm_recency_score, s.rfm_frequency_score, s.rfm_monetary_score, s.rfm_total_score, s.rfm_segment ?? null, now, s.id, accountId],
+        })),
+        "write"
+      );
     }
 
-    for (const segmentName of RFM_SEGMENTS) {
-      if (segmentName === "Sin Clasificar") continue;
+    // ── Actualizar contadores de segmentos en bulk ────────────────────────────
+    const segmentCounts = await db.select({
+      segment: customers.rfm_segment,
+      count: sql<number>`count(*)`,
+    }).from(customers)
+      .where(and(eq(customers.account_id, accountId), sql`rfm_segment IS NOT NULL`))
+      .groupBy(customers.rfm_segment).all();
 
-      const countResult = await db.select({ count: sql<number>`count(*)` })
-        .from(customers)
-        .where(and(eq(customers.account_id, accountId), eq(customers.rfm_segment, segmentName)))
-        .get();
-      const count = countResult?.count ?? 0;
+    const countMap = new Map(segmentCounts.map((r) => [r.segment, r.count]));
 
-      const existing = await db.select().from(segments)
-        .where(and(eq(segments.account_id, accountId), eq(segments.name, segmentName))).get();
+    const existingSegs = await db.select().from(segments)
+      .where(and(eq(segments.account_id, accountId), eq(segments.is_rfm_auto, true))).all();
+    const existingByName = new Map(existingSegs.map((s) => [s.name, s]));
 
+    const segUpserts = RFM_SEGMENTS.filter((name) => name !== "Sin Clasificar").map((name) => {
+      const count = countMap.get(name) ?? 0;
+      const existing = existingByName.get(name);
       if (existing) {
-        await db.update(segments).set({
-          customer_count: count, updated_at: new Date().toISOString(),
-        }).where(eq(segments.id, existing.id)).run();
+        return {
+          sql: `UPDATE segments SET customer_count=?, updated_at=? WHERE id=?`,
+          args: [count, now, existing.id],
+        };
       } else {
-        await db.insert(segments).values({
-          account_id: accountId,
-          name: segmentName,
-          description: config.find((r) => r.name === segmentName)?.description ?? `Segmento RFM: ${segmentName}`,
-          filters: [{ id: "rfm", field: "rfm_segment", operator: "eq", value: segmentName }],
-          customer_count: count,
-          is_rfm_auto: true,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        }).run();
+        const desc = config.find((r) => r.name === name)?.description ?? `Segmento RFM: ${name}`;
+        const filters = JSON.stringify([{ id: "rfm", field: "rfm_segment", operator: "eq", value: name }]);
+        return {
+          sql: `INSERT INTO segments (account_id, name, description, filters, customer_count, is_rfm_auto, created_at, updated_at) VALUES (?,?,?,?,?,1,?,?)`,
+          args: [accountId, name, desc, filters, count, now, now],
+        };
       }
-    }
+    });
+
+    if (segUpserts.length > 0) await client.batch(segUpserts, "write");
 
     return NextResponse.json({ message: "RFM recalculado exitosamente", updated: scored.length, total: allCustomers.length });
   } catch (error) {
