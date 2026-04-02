@@ -1,4 +1,5 @@
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 import { NextRequest, NextResponse } from "next/server";
 import db from "@/db";
 import { customers, orders, order_items, imports } from "@/db/schema";
@@ -327,10 +328,6 @@ export async function POST(request: NextRequest) {
       rows_imported: imported, rows_skipped: skipped, rows_duplicates_merged: merged,
       status: "completado", error_log: errorLog,
     }).where(eq(imports.id, importId)).run();
-
-    if ((importType === "orders" || importType === "combined") && imported > 0) {
-      try { await triggerRFMRecalculation(accountId); } catch (e) { console.error("RFM recalc failed:", e); }
-    }
 
     return NextResponse.json({ importId, imported, skipped, merged, total: rows.length, errors: errorLog.slice(0, 20) });
   } catch (error) {

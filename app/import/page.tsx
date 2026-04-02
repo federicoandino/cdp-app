@@ -83,7 +83,7 @@ export default function ImportPage() {
     if (!parsedRows.length) return;
     setLoading(true);
 
-    const BATCH_SIZE = 500;
+    const BATCH_SIZE = 1000;
     const fileName = file?.name ?? "import.csv";
     const fileType = file?.name.endsWith(".xlsx") ? "xlsx" : "csv";
     const accumulated: ImportResult = { importId: 0, imported: 0, skipped: 0, merged: 0, total: parsedRows.length, errors: [] };
