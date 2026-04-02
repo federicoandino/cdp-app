@@ -20,16 +20,17 @@ function weightedPick<T>(items: T[], weights: number[]): T {
   return items[items.length - 1];
 }
 
-/** Exponential distribution — mediana 30 días, P80 ≈ 70 días */
+/** Exponential distribution — mediana ~30 días, mínimo 7 días */
 function daysToRepurchase(): number {
   const lambda = Math.LN2 / 30;
-  return Math.max(1, Math.min(Math.round(-Math.log(Math.random()) / lambda), 730));
+  const raw = Math.round(-Math.log(Math.random()) / lambda);
+  return Math.max(7, Math.min(raw, 730));
 }
 
 function addDays(dateStr: string, days: number): string {
-  const d = new Date(dateStr);
-  d.setDate(d.getDate() + days);
-  return d.toISOString().split("T")[0];
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const date = new Date(Date.UTC(y, m - 1, d + days));
+  return date.toISOString().split("T")[0];
 }
 
 function randomDateBetween(start: string, end: string): string {
